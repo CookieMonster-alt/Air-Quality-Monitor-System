@@ -56,8 +56,8 @@ Both of the following files must be present in the same directory for the applic
 
 1. **Clone the Repository**:
    ```bash
-   git clone [repository-url]
-   cd [repository-directory]
+   git clone https://github.com/CookieMonster-alt/Air-Quality-Monitor-System.git
+   cd Air-Quality-Monitor-System
    ```
 
 2. **Verify Files**:
