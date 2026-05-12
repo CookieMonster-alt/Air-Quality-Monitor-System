@@ -73,10 +73,12 @@ import json
 import datetime
 import os, shutil
 import display_library as dl
+from data_manager import DatabaseManager, CityRecord
 
 # ------------------ Constant Variables ------------------|
 
-JSON_FILE = "cities.json"
+DB_FILE = "aqi_data.db"
+db = DatabaseManager(DB_FILE)
 
 # Reference 15
 # Color Codes
@@ -106,27 +108,9 @@ BRIGHT_WHITE = "\033[1m\033[97m"
 # updating, finding, and deleting. It is used for data manipulation.
 
 
-def display_aqi_data(city_name):
-    with open(JSON_FILE, "r") as file:
-        data = json.load(file)
-        return data.get(city_name, [])
-    return []
-
-
 def time_stamp():
     time_stamp = datetime.datetime.now()  # Reference 2
     return time_stamp.isoformat(" ", "minutes")
-
-
-def read_json_file_convert_to_list():  # Reference 12
-    all_records = []
-    with open(JSON_FILE, "r") as file:
-        data = json.load(file)
-        for city, records in data.items():
-            for record in records:
-                record["City"] = city
-                all_records.append(record)
-    return all_records
 
 
 # |--------------- End of Data Functions --------------|
@@ -135,49 +119,21 @@ def read_json_file_convert_to_list():  # Reference 12
 # |------------------ File Functions ------------------|
 # Reference 9
 """
-This section contains all functions for managing the JSON database file.
-It handles creating the file if it doesn't exist, reading city data,
-saving new AQI records, creating backups, and deleting the database file.
+This section contains all functions for managing the SQLite database file.
+It handles deleting the database file and backing it up.
 """
 
-def read_cities_json_and_return_city_names():  # Reference 5
-    with open(JSON_FILE, "r") as file:
-        data = json.load(file)
-        return list(data.keys())
-    return []
-
 def delete_database():
-    if os.path.exists(JSON_FILE):
-        os.remove(JSON_FILE)
+    if os.path.exists(DB_FILE):
+        os.remove(DB_FILE)
         print("Database deleted successfully!")
     else:
         print("No database found to delete")
 
-def save_aqi_record(city_name, aqi):
-    all_city_data = {}
-    try:
-        with open(JSON_FILE, "r") as json_file:
-            all_city_data = json.load(json_file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    if city_name in all_city_data:
-        all_city_data[city_name].append(
-            {"AQI": aqi, "Timestamp": time_stamp()}
-        )
-    else:
-        all_city_data[city_name] = [{"AQI": aqi, "Timestamp": time_stamp()}]
-    with open(JSON_FILE, "w") as json_file:
-        json.dump(all_city_data, json_file, indent=4)
-
-def check_file_exists():
-    if not os.path.exists(JSON_FILE):
-        with open(JSON_FILE, "w") as file:
-            json.dump({}, file)
-
 # Reference 10
 def backup_database(source_file):
     if os.path.exists(source_file):
-        backup_file_name = f"backup_file_{time_stamp()}_" + source_file
+        backup_file_name = f"backup_file_{time_stamp().replace(':', '-').replace(' ', '_')}_" + source_file
         shutil.copy(source_file, backup_file_name)
         dl.print_middle_middle(f"Database backed up to {GREEN}{backup_file_name}{RESET}")
     else:
@@ -198,8 +154,8 @@ It can sort all records by AQI value (highest or lowest), by city name
 """
 
 def sort_by_highest_aqi():
-    list_data = read_json_file_convert_to_list()
-    sorted_list = sorted(list_data, key=lambda x: x["AQI"], reverse=True)
+    list_data = db.get_all_records()
+    sorted_list = sorted(list_data, key=lambda x: x.aqi_value, reverse=True)
     dl.menu_title_centered('Sorted by highest AQI'.upper(), '=', YELLOW)
     dl.print_middle_middle(dl.draw_border_head('-','|'))
     dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
@@ -207,17 +163,17 @@ def sort_by_highest_aqi():
     for each_item in sorted_list:
         
         data = [
-            f'{each_item.get("City")}',
-            f'{each_item.get("AQI")}',
-            f'{each_item.get("Timestamp")}'
+            f'{each_item.city_name}',
+            f'{each_item.aqi_value}',
+            f'{each_item.timestamp}'
         ]
         dl.print_middle_middle(dl.create_data_in_middle_row(data))
         dl.print_middle_middle(dl.draw_border_head('-','|'))
 
 
 def sort_by_lowest_aqi():
-    list_data = read_json_file_convert_to_list()
-    sorted_list = sorted(list_data, key=lambda x: x["AQI"], reverse=False)
+    list_data = db.get_all_records()
+    sorted_list = sorted(list_data, key=lambda x: x.aqi_value, reverse=False)
     dl.menu_title_centered('Sorted by lowest AQI'.upper(), '=', YELLOW)
     dl.print_middle_middle(dl.draw_border_head('-','|'))
     dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
@@ -225,17 +181,17 @@ def sort_by_lowest_aqi():
     for each_item in sorted_list:
         
         data = [
-            f'{each_item.get("City")}',
-            f'{each_item.get("AQI")}',
-            f'{each_item.get("Timestamp")}'
+            f'{each_item.city_name}',
+            f'{each_item.aqi_value}',
+            f'{each_item.timestamp}'
         ]
         dl.print_middle_middle(dl.create_data_in_middle_row(data))
         dl.print_middle_middle(dl.draw_border_head('-','|'))
 
 
 def sort_by_city_name_az():
-    list_data = read_json_file_convert_to_list()
-    sorted_list = sorted(list_data, key=lambda x: x["City"], reverse=False)
+    list_data = db.get_all_records()
+    sorted_list = sorted(list_data, key=lambda x: x.city_name, reverse=False)
     dl.menu_title_centered('Sorted by city name  (A-Z)'.upper(), '=', YELLOW)
     dl.print_middle_middle(dl.draw_border_head('-','|'))
     dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
@@ -243,17 +199,17 @@ def sort_by_city_name_az():
     for each_item in sorted_list:
         
         data = [
-            f'{each_item.get("City")}',
-            f'{each_item.get("AQI")}',
-            f'{each_item.get("Timestamp")}'
+            f'{each_item.city_name}',
+            f'{each_item.aqi_value}',
+            f'{each_item.timestamp}'
         ]
         dl.print_middle_middle(dl.create_data_in_middle_row(data))
         dl.print_middle_middle(dl.draw_border_head('-','|'))
 
 
 def sort_by_city_name_za():
-    list_data = read_json_file_convert_to_list()
-    sorted_list = sorted(list_data, key=lambda x: x["City"], reverse=True)
+    list_data = db.get_all_records()
+    sorted_list = sorted(list_data, key=lambda x: x.city_name, reverse=True)
     dl.menu_title_centered('Sorted by city name  (Z-A)'.upper(), '=', YELLOW)
     dl.print_middle_middle(dl.draw_border_head('-','|'))
     dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
@@ -261,9 +217,9 @@ def sort_by_city_name_za():
     for each_item in sorted_list:
         
         data = [
-            f'{each_item.get("City")}',
-            f'{each_item.get("AQI")}',
-            f'{each_item.get("Timestamp")}'
+            f'{each_item.city_name}',
+            f'{each_item.aqi_value}',
+            f'{each_item.timestamp}'
         ]
         dl.print_middle_middle(dl.create_data_in_middle_row(data))
         dl.print_middle_middle(dl.draw_border_head('-','|'))
@@ -272,9 +228,11 @@ def sort_by_city_name_za():
 def calculate_average_aqi():
     aiq_sum = 0
     aiq_count = 0
-    list_data = read_json_file_convert_to_list()
+    list_data = db.get_all_records()
+    if not list_data:
+        return 0
     for a in list_data:
-        aiq_sum += a["AQI"]
+        aiq_sum += a.aqi_value
         aiq_count += 1
     average = aiq_sum / aiq_count
     return average
@@ -333,7 +291,6 @@ Menus:
 """
 
 def main_menu():
-    check_file_exists()
     while True:
         dl.clear_screen()
         dl.menu_title_centered('Air Quality Monitor System'.upper(), '=', YELLOW)
@@ -381,12 +338,14 @@ def menu_1():
     while True:
         dl.clear_screen()
         dl.menu_title_centered('Data Entry Menu'.upper(), '=', YELLOW)
-        cities_from_file = read_cities_json_and_return_city_names()
+        all_records = db.get_all_records()
+        cities_from_db = list(set([record.city_name for record in all_records]))
+        cities_from_db.sort()
         city_list_number = 1
-        for city in cities_from_file:
+        for city in cities_from_db:
             dl.submenu_text_print(f"{city_list_number}- {city}", GREEN)
             city_list_number += 1
-        add_new_city_option = len(cities_from_file) + 1
+        add_new_city_option = len(cities_from_db) + 1
         dl.submenu_text_print(f"{add_new_city_option}- Add New City", BLUE)
         city_number_input = dl.print_and_get_input(
             f"Please choose a city number, or choose to add new city or type {RED}'exit'{RESET} to return to the main menu : ", 'middle', 'middle'
@@ -396,13 +355,13 @@ def menu_1():
         city_name = None
         if city_number_input.isdigit():
             city_number = int(city_number_input)
-            if 0 < city_number <= len(cities_from_file):
-                city_name = cities_from_file[city_number - 1]
+            if 0 < city_number <= len(cities_from_db):
+                city_name = cities_from_db[city_number - 1]
             elif city_number == add_new_city_option:
                 new_city_name = dl.print_and_get_input(
                     "Please enter the name of the new city to add : ", 'middle', 'middle'
                 ).title()
-                if new_city_name in cities_from_file:
+                if new_city_name in cities_from_db:
                     dl.print_middle_middle(f"{GREEN}{new_city_name}{RESET} already exists in the list")
                 else:
                     city_name = new_city_name
@@ -412,8 +371,9 @@ def menu_1():
                     f"Please enter air quality index for {GREEN}{city_name}{RESET}: ", 'middle', 'middle'
                 )
                 try:
-                    aqi = float(aqi_input)
-                    save_aqi_record(city_name, aqi)
+                    aqi = int(float(aqi_input))
+                    new_record = CityRecord(city_name=city_name, aqi_value=aqi, timestamp=time_stamp())
+                    db.add_record(new_record)
                     dl.print_middle_middle(f"AQI data for {GREEN}{city_name}{RESET} saved successfully!")
                     continue_choice = dl.print_and_get_input(f'Do you want to add more data to {GREEN}{city_name}{RESET}? (Y/N) : ', 'middle', 'middle')
                     if continue_choice.upper() == "Y":
@@ -440,19 +400,20 @@ def menu_2():
     while True:
         dl.clear_screen()
         dl.menu_title_centered('Search Menu'.upper(), '=', YELLOW)
-        city = read_cities_json_and_return_city_names()
+        all_records = db.get_all_records()
+        cities_from_db = list(set([record.city_name for record in all_records]))
         input_city = dl.print_and_get_input("Please enter city name to search : ", 'middle', 'middle')
         if input_city == '':
             dl.print_middle_middle(f'{RED}Please enter city name!{RESET}')
             dl.print_and_get_input('Press Enter to continue...', 'middle', 'middle')
             continue
         city_name = input_city.title()
-        if city_name in city:
+        if city_name in cities_from_db:
             dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is found in the database!")
             choice = dl.print_and_get_input(f"Do you want to see the {GREEN}AQI{RESET} data? {RED}(Y/N){RESET}: ", 'middle', 'middle').upper()
             print("\n")
             if choice == "Y":
-                records = display_aqi_data(city_name)
+                records = [record for record in all_records if record.city_name == city_name]
                 if not records:
                     dl.print_middle_middle(f"No AQI records found for {GREEN}{city_name}.{RESET}")
                 else:
@@ -462,8 +423,8 @@ def menu_2():
                     for record in records:
                         data = [
                             f'{city_name}',
-                            f'{record.get("AQI")}',
-                            f'{record.get("Timestamp")}'
+                            f'{record.aqi_value}',
+                            f'{record.timestamp}'
                         ]
                         dl.print_middle_middle(dl.create_data_in_middle_row(data))
                         dl.print_middle_middle(dl.draw_border_head('-','|'))
@@ -594,7 +555,7 @@ def menu_4():
             choice = dl.print_and_get_input(f"{GREEN}Do you want to backup database? (Y/N) :{RESET} ", 'middle', 'middle')
             choice = choice.upper()
             if choice == "Y":
-                backup_database(JSON_FILE)
+                backup_database(DB_FILE)
                 dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
                 continue
             elif choice == "N":
@@ -617,4 +578,5 @@ def menu_4():
 
 # |----------------- End of Main Menu and Display Functions ------------------|
 
-main_menu()
+if __name__ == "__main__":
+    main_menu()
