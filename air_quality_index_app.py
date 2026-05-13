@@ -509,21 +509,6 @@ def menu_3():
             dl.clear_screen()
             dl.menu_title_centered('Analytics & Reports'.upper(), '=', YELLOW)
 
-            avg_aqi = db.get_average_aqi()
-            highest_city = db.get_city_with_highest_aqi()
-
-            dl.print_middle_middle(f"Average System AQI: {avg_aqi:.2f} ({get_epa_category(avg_aqi)})")
-            print('\n')
-
-            if highest_city:
-                dl.print_middle_middle(f"Highest Pollution: {highest_city[0]} - {highest_city[1]} ({get_epa_category(highest_city[1])})")
-            else:
-                dl.print_middle_middle("Highest Pollution: No records available")
-
-            print('\n')
-            dl.print_middle_middle(f"{dl.divide_middle_column_in_three()['Middle size'] * '-'}")
-            print('\n')
-
             dl.print_middle_middle(f"{BLUE}1- Display from highest AQI data")
             print('\n')
             dl.print_middle_middle(f"2- Display from lowest AQI data")
@@ -532,7 +517,7 @@ def menu_3():
             print('\n')
             dl.print_middle_middle(f"4- Display from city name (Z-A)")
             print('\n')
-            dl.print_middle_middle(f"5- Average AQI data{RESET}")
+            dl.print_middle_middle(f"5- Executive Analytics Summary{RESET}")
             print('\n')
             dl.print_middle_middle(RED + "6- Return main menu" + RESET)
             print('\n')
@@ -567,13 +552,23 @@ def menu_3():
                 continue
             elif user_choice == "5":
                 dl.clear_screen()
-                sort_by_city_name_az()
+                dl.menu_title_centered('Executive Analytics Summary'.upper(), '=', YELLOW)
+
+                avg_aqi = db.get_average_aqi()
+                highest_city = db.get_city_with_highest_aqi()
+
                 print('\n')
-                dl.print_middle_middle(
-                    f"Average AQI data is : {BRIGHT_GREEN}{calculate_average_aqi():.2f}{RESET}"
-                )
+                dl.print_middle_middle(f"Average System AQI: {avg_aqi:.2f} ({get_epa_category(avg_aqi)})")
                 print('\n')
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+
+                if highest_city:
+                    dl.print_middle_middle(f"Highest Pollution: {highest_city[0]} - {highest_city[1]} ({get_epa_category(highest_city[1])})")
+                else:
+                    dl.print_middle_middle("Highest Pollution: No records available")
+
+                print('\n')
+                dl.print_footer()
+                dl.print_and_get_input(f"Press Enter to return to the Reports menu", 'middle', 'middle')
                 continue
             elif user_choice == "6":
                 break
