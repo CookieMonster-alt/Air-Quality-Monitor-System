@@ -604,7 +604,9 @@ def menu_4():
             print('\n')
             dl.print_middle_middle(f"{BLUE}2- Backup Database{RESET}")
             print('\n')
-            dl.print_middle_middle(f"{RED} 3- Return main menu{RESET}")
+            dl.print_middle_middle(f"{BLUE}3- Export Database to JSON{RESET}")
+            print('\n')
+            dl.print_middle_middle(f"{RED}4- Return main menu{RESET}")
             print('\n')
             dl.print_footer()
             user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
@@ -651,6 +653,11 @@ def menu_4():
                     dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu")
                     continue
             elif user_choice == "3":
+                filename = db.export_to_json()
+                print_msg("success", f"Data successfully exported to {filename}")
+                dl.print_and_get_input(f"Press Enter to return to the admin menu", 'middle', 'middle')
+                continue
+            elif user_choice == "4":
                 break
             else:
                 dl.print_middle_middle("Invalid choice!")
