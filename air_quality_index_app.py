@@ -379,7 +379,6 @@ def menu_1():
                     else:
                         city_name = new_city_name
                         break
-
         if city_name:
             while True:
                 aqi_input = dl.print_and_get_input(
