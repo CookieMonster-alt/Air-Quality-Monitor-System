@@ -358,20 +358,43 @@ def menu_1():
             if 0 < city_number <= len(cities_from_db):
                 city_name = cities_from_db[city_number - 1]
             elif city_number == add_new_city_option:
-                new_city_name = dl.print_and_get_input(
-                    "Please enter the name of the new city to add : ", 'middle', 'middle'
-                ).title()
-                if new_city_name in cities_from_db:
-                    dl.print_middle_middle(f"{GREEN}{new_city_name}{RESET} already exists in the list")
-                else:
-                    city_name = new_city_name
+                while True:
+                    raw_city_input = dl.print_and_get_input(
+                        'Please enter the name of the new city to add (Type "cancel" to go back) : ', 'middle', 'middle'
+                    )
+                    clean_city_input = raw_city_input.strip()
+
+                    if clean_city_input.lower() == "cancel":
+                        break
+
+                    if not clean_city_input or clean_city_input.isdigit():
+                        dl.print_middle_middle(f"{BRIGHT_RED}[ERROR]{RESET} City name cannot be empty or only numbers. Please try again.")
+                        continue
+
+                    new_city_name = clean_city_input.title()
+
+                    if new_city_name in cities_from_db:
+                        dl.print_middle_middle(f"{GREEN}{new_city_name}{RESET} already exists in the list")
+                        break
+                    else:
+                        city_name = new_city_name
+                        break
+
         if city_name:
             while True:
                 aqi_input = dl.print_and_get_input(
-                    f"Please enter air quality index for {GREEN}{city_name}{RESET}: ", 'middle', 'middle'
+                    f'Please enter air quality index for {GREEN}{city_name}{RESET} (Type "cancel" to go back): ', 'middle', 'middle'
                 )
+
+                if aqi_input.strip().lower() == "cancel":
+                    break
+
                 try:
                     aqi = float(aqi_input)
+                    if aqi < 0 or aqi > 500:
+                        dl.print_middle_middle(f"{BRIGHT_RED}[ERROR]{RESET} Invalid AQI. Please enter a number between 0 and 500.")
+                        continue
+
                     new_record = CityRecord(city_name=city_name, aqi_value=aqi, timestamp=time_stamp())
                     db.add_record(new_record)
                     dl.print_middle_middle(f"AQI data for {GREEN}{city_name}{RESET} saved successfully!")
@@ -384,7 +407,10 @@ def menu_1():
                         dl.print_middle_middle("Invalid choice. Please enter Y or N.")
                         continue
                 except ValueError:
-                    dl.print_middle_middle("Invalid AQI. Please enter a valid number!")
+                    dl.print_middle_middle(f"{BRIGHT_RED}[ERROR]{RESET} Invalid AQI. Please enter a number between 0 and 500.")
+        elif city_number_input.isdigit() and city_name is None:
+            # We hit 'cancel' during the inner loop
+            continue
         else:
             print('\n')
             dl.print_and_get_input(f'{RED}Invalid choice.{RESET} Press Enter to try again', 'middle', 'middle')
