@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import datetime
 from dataclasses import dataclass, asdict
 from typing import List
 
@@ -81,4 +82,8 @@ class DatabaseManager:
     def export_to_json(self) -> str:
         records = self.get_all_records()
         records_dict = [asdict(record) for record in records]
-        return json.dumps(records_dict, indent=4)
+        timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"aqi_export_{timestamp_str}.json"
+        with open(filename, "w") as json_file:
+            json.dump(records_dict, json_file, indent=4)
+        return filename
