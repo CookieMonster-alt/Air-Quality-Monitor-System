@@ -115,18 +115,14 @@ def time_stamp():
 def print_msg(msg_type: str, text: str):
     if msg_type == 'error':
         color = BRIGHT_RED
-        prefix = "[ERROR]"
     elif msg_type == 'success':
         color = BRIGHT_GREEN
-        prefix = "[SUCCESS]"
     elif msg_type == 'info':
         color = BRIGHT_YELLOW
-        prefix = "[INFO]"
     else:
         color = RESET
-        prefix = ""
 
-    formatted_msg = f"{color}{prefix} {text}{RESET}"
+    formatted_msg = f"{color}{text}{RESET}"
     dl.print_middle_middle(formatted_msg)
 
 # |--------------- End of Data Functions --------------|
@@ -308,39 +304,46 @@ Menus:
 
 def main_menu():
     while True:
-        dl.clear_screen()
-        dl.menu_title_centered('Air Quality Monitor System'.upper(), '=', YELLOW)
-        dl.submenu_text_print('1- Data Entry Menu', BLUE)
-        dl.submenu_text_print('2- Search Menu', BLUE)
-        dl.submenu_text_print('3- Reports and Analysis Menu', BLUE)
-        dl.submenu_text_print('4- Admin Menu', BLUE)
-        dl.submenu_text_print('5- Exit Program', RED)
-        choice =dl.print_and_get_input('Please choose one of option from menu :', 'middle', 'middle')
+        try:
+            dl.clear_screen()
+            dl.menu_title_centered('Air Quality Monitor System'.upper(), '=', YELLOW)
+            dl.submenu_text_print('1- Data Entry Menu', BLUE)
+            dl.submenu_text_print('2- Search Menu', BLUE)
+            dl.submenu_text_print('3- Reports and Analysis Menu', BLUE)
+            dl.submenu_text_print('4- Admin Menu', BLUE)
+            dl.submenu_text_print('5- Exit Program', RED)
+            dl.print_footer()
+            choice =dl.print_and_get_input('Please choose one of option from menu :', 'middle', 'middle')
 
-        if choice == "1":
-            menu_1()
+            if choice == "1":
+                menu_1()
 
-        elif choice == "2":
-            menu_2()
+            elif choice == "2":
+                menu_2()
 
-        elif choice == "3":
-            menu_3()
+            elif choice == "3":
+                menu_3()
 
-        elif choice == "4":
-            menu_4()
+            elif choice == "4":
+                menu_4()
 
-        elif choice == "5":
-            exit_choice = dl.print_and_get_input(f"Do you want to {RED}Exit{RESET} the program? (Y/N) :", 'middle', 'middle')
-            if exit_choice.upper() == "Y":
-                dl.print_middle_middle('You logged out!!')
-                break
-            elif exit_choice.upper() == "N":
-                continue
+            elif choice == "5":
+                exit_choice = dl.print_and_get_input(f"Do you want to {RED}Exit{RESET} the program? (Y/N) :", 'middle', 'middle')
+                if exit_choice.upper() == "Y":
+                    dl.print_middle_middle('You logged out!!')
+                    break
+                elif exit_choice.upper() == "N":
+                    continue
+                else:
+                    dl.print_middle_middle("Invalid choice. Please enter Y or N.")
+                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to continue...", 'middle', 'middle')
             else:
-                dl.print_middle_middle("Invalid choice. Please enter Y or N.")
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to continue...", 'middle', 'middle')
-        else:
-            dl.print_and_get_input("Invalid choice. Please try again!!", 'middle', 'middle')
+                dl.print_and_get_input("Invalid choice. Please try again!!", 'middle', 'middle')
+        except KeyboardInterrupt:
+            print('\n')
+            dl.print_middle_middle(f"{BRIGHT_YELLOW}Action cancelled. Returning to main menu...{RESET}")
+            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            continue
             
 
 
@@ -364,25 +367,33 @@ def menu_1():
         add_new_city_option = len(cities_from_db) + 1
         dl.submenu_text_print(f"{add_new_city_option}- Add New City", BLUE)
         try:
+            dl.print_footer()
             city_number_input = dl.print_and_get_input(
                 f"Please choose a city number, or choose to add new city or type {RED}'exit'{RESET} to return to the main menu : ", 'middle', 'middle'
             )
             if city_number_input.lower() == "exit":
                 return
             city_name = None
-            if city_number_input.isdigit():
+            if city_number_input == "":
+                return
+            elif city_number_input.isdigit():
                 city_number = int(city_number_input)
                 if 0 < city_number <= len(cities_from_db):
                     city_name = cities_from_db[city_number - 1]
                 elif city_number == add_new_city_option:
                     while True:
+                        dl.print_footer()
                         raw_city_input = dl.print_and_get_input(
                             'Please enter the name of the new city to add : ', 'middle', 'middle'
                         )
                         clean_city_input = raw_city_input.strip()
 
-                        if not clean_city_input or clean_city_input.isdigit():
-                            print_msg("error", "City name cannot be empty or only numbers. Please try again.")
+                        if clean_city_input == "":
+                            city_name = None
+                            break
+
+                        if clean_city_input.isdigit():
+                            print_msg("error", "City name cannot be only numbers. Please try again.")
                             continue
 
                         new_city_name = clean_city_input.title()
@@ -395,9 +406,13 @@ def menu_1():
                             break
             if city_name:
                 while True:
+                    dl.print_footer()
                     aqi_input = dl.print_and_get_input(
                         f'Please enter air quality index for {GREEN}{city_name}{RESET}: ', 'middle', 'middle'
                     )
+
+                    if aqi_input == "":
+                        break
 
                     try:
                         aqi = float(aqi_input)
@@ -411,7 +426,7 @@ def menu_1():
                         continue_choice = dl.print_and_get_input(f'Do you want to add more data to {GREEN}{city_name}{RESET}? (Y/N) : ', 'middle', 'middle')
                         if continue_choice.upper() == "Y":
                             continue
-                        elif continue_choice.upper() == "N":
+                        elif continue_choice.upper() == "N" or continue_choice == "":
                             break
                         else:
                             print_msg("error", "Invalid choice. Please enter Y or N.")
@@ -438,42 +453,47 @@ def menu_1():
 # Search Menu Start Here
 def menu_2():
     while True:
-        dl.clear_screen()
-        dl.menu_title_centered('Search Menu'.upper(), '=', YELLOW)
-        all_records = db.get_all_records()
-        cities_from_db = list(set([record.city_name for record in all_records]))
-        input_city = dl.print_and_get_input("Please enter city name to search : ", 'middle', 'middle')
-        if input_city == '':
-            dl.print_middle_middle(f'{RED}Please enter city name!{RESET}')
-            dl.print_and_get_input('Press Enter to continue...', 'middle', 'middle')
-            continue
-        city_name = input_city.title()
-        if city_name in cities_from_db:
-            dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is found in the database!")
-            choice = dl.print_and_get_input(f"Do you want to see the {GREEN}AQI{RESET} data? {RED}(Y/N){RESET}: ", 'middle', 'middle').upper()
-            print("\n")
-            if choice == "Y":
-                records = [record for record in all_records if record.city_name == city_name]
-                if not records:
-                    dl.print_middle_middle(f"No AQI records found for {GREEN}{city_name}.{RESET}")
-                else:
-                    dl.print_middle_middle(dl.draw_border_head('-','|'))
-                    dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
-                    dl.print_middle_middle(dl.draw_border_head('-','|'))
-                    for record in records:
-                        data = [
-                            f'{city_name}',
-                            f'{record.aqi_value}',
-                            f'{record.timestamp}'
-                        ]
-                        dl.print_middle_middle(dl.create_data_in_middle_row(data))
+        try:
+            dl.clear_screen()
+            dl.menu_title_centered('Search Menu'.upper(), '=', YELLOW)
+            all_records = db.get_all_records()
+            cities_from_db = list(set([record.city_name for record in all_records]))
+            dl.print_footer()
+            input_city = dl.print_and_get_input("Please enter city name to search : ", 'middle', 'middle')
+            if input_city == '':
+                return
+            city_name = input_city.title()
+            if city_name in cities_from_db:
+                dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is found in the database!")
+                choice = dl.print_and_get_input(f"Do you want to see the {GREEN}AQI{RESET} data? {RED}(Y/N){RESET}: ", 'middle', 'middle').upper()
+                print("\n")
+                if choice == "Y":
+                    records = [record for record in all_records if record.city_name == city_name]
+                    if not records:
+                        dl.print_middle_middle(f"No AQI records found for {GREEN}{city_name}.{RESET}")
+                    else:
                         dl.print_middle_middle(dl.draw_border_head('-','|'))
-                    print("\n")
-                    dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
-        else:
-            dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is not found in the database!")
-            dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
-        return
+                        dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
+                        dl.print_middle_middle(dl.draw_border_head('-','|'))
+                        for record in records:
+                            data = [
+                                f'{city_name}',
+                                f'{record.aqi_value}',
+                                f'{record.timestamp}'
+                            ]
+                            dl.print_middle_middle(dl.create_data_in_middle_row(data))
+                            dl.print_middle_middle(dl.draw_border_head('-','|'))
+                        print("\n")
+                        dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
+            else:
+                dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is not found in the database!")
+                dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
+            return
+        except KeyboardInterrupt:
+            print('\n')
+            print_msg("info", "Action cancelled. Returning to menu...")
+            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            return
 
 
 # Search Menu End Here
@@ -485,65 +505,74 @@ def menu_2():
 def menu_3():
     dl.clear_screen()
     while True:
-        dl.clear_screen()
-        dl.menu_title_centered('Reports and Analysis Menu'.upper(), '=', YELLOW)
-        dl.print_middle_middle(f"{BLUE}1- Display from highest AQI data")
-        print('\n')
-        dl.print_middle_middle(f"2- Display from lowest AQI data")
-        print('\n')
-        dl.print_middle_middle(f"3- Display from city name (A-Z)")
-        print('\n')
-        dl.print_middle_middle(f"4- Display from city name (Z-A)")
-        print('\n')
-        dl.print_middle_middle(f"5- Average AQI data{RESET}")
-        print('\n')
-        dl.print_middle_middle(RED + "6- Return main menu" + RESET)
-        print('\n')
-        user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
+        try:
+            dl.clear_screen()
+            dl.menu_title_centered('Reports and Analysis Menu'.upper(), '=', YELLOW)
+            dl.print_middle_middle(f"{BLUE}1- Display from highest AQI data")
+            print('\n')
+            dl.print_middle_middle(f"2- Display from lowest AQI data")
+            print('\n')
+            dl.print_middle_middle(f"3- Display from city name (A-Z)")
+            print('\n')
+            dl.print_middle_middle(f"4- Display from city name (Z-A)")
+            print('\n')
+            dl.print_middle_middle(f"5- Average AQI data{RESET}")
+            print('\n')
+            dl.print_middle_middle(RED + "6- Return main menu" + RESET)
+            print('\n')
+            dl.print_footer()
+            user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
 
-        if user_choice == "1":
-            dl.clear_screen()
-            sort_by_highest_aqi()
+            if user_choice == "":
+                return
+            elif user_choice == "1":
+                dl.clear_screen()
+                sort_by_highest_aqi()
+                print('\n')
+                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                continue
+            elif user_choice == "2":
+                dl.clear_screen()
+                sort_by_lowest_aqi()
+                print('\n')
+                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                continue
+            elif user_choice == "3":
+                dl.clear_screen()
+                sort_by_city_name_az()
+                print('\n')
+                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                continue
+            elif user_choice == "4":
+                dl.clear_screen()
+                sort_by_city_name_za()
+                print('\n')
+                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                continue
+            elif user_choice == "5":
+                dl.clear_screen()
+                sort_by_city_name_az()
+                print('\n')
+                dl.print_middle_middle(
+                    f"Average AQI data is : {BRIGHT_GREEN}{calculate_average_aqi():.2f}{RESET}"
+                )
+                print('\n')
+                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                continue
+            elif user_choice == "6":
+                break
+            elif user_choice > "6" or user_choice < "1":
+                print('\n')
+                dl.print_and_get_input(f"Invalid choice. Press {RED}Enter{RESET} to try again!!", 'middle', 'middle')
+                continue
+            else:
+                print('\n')
+                return f"{RED}Invalid choice. Please try again!!{RESET}"
+        except KeyboardInterrupt:
             print('\n')
-            dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
-            continue
-        elif user_choice == "2":
-            dl.clear_screen()
-            sort_by_lowest_aqi()
-            print('\n')
-            dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
-            continue
-        elif user_choice == "3":
-            dl.clear_screen()
-            sort_by_city_name_az()
-            print('\n')
-            dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
-            continue
-        elif user_choice == "4":
-            dl.clear_screen()
-            sort_by_city_name_za()
-            print('\n')
-            dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
-            continue
-        elif user_choice == "5":
-            dl.clear_screen()
-            sort_by_city_name_az()
-            print('\n')
-            dl.print_middle_middle(
-                f"Average AQI data is : {BRIGHT_GREEN}{calculate_average_aqi():.2f}{RESET}"
-            )
-            print('\n')
-            dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
-            continue
-        elif user_choice == "6":
-            break
-        elif user_choice > "6" or user_choice < "1":
-            print('\n')
-            dl.print_and_get_input(f"Invalid choice. Press {RED}Enter{RESET} to try again!!", 'middle', 'middle')
-            continue
-        else:
-            print('\n')
-            return f"{RED}Invalid choice. Please try again!!{RESET}"
+            print_msg("info", "Action cancelled. Returning to menu...")
+            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            return
 
 
 # Reports and Analysis Menu End Here
@@ -556,62 +585,71 @@ def menu_4():
     dl.clear_screen()
     dl.menu_title_centered('Admin Menu'.upper(), '=', YELLOW)
     while True:
-        dl.clear_screen()
-        dl.menu_title_centered('Admin Menu'.upper(), '=', YELLOW)
-        print('\n')
-        dl.print_middle_middle(f"{BLUE}1- Delete Database{RESET}")
-        print('\n')
-        dl.print_middle_middle(f"{BLUE}2- Backup Database{RESET}")
-        print('\n')
-        dl.print_middle_middle(f"{RED} 3- Return main menu{RESET}")
-        print('\n')
-        user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
+        try:
+            dl.clear_screen()
+            dl.menu_title_centered('Admin Menu'.upper(), '=', YELLOW)
+            print('\n')
+            dl.print_middle_middle(f"{BLUE}1- Delete Database{RESET}")
+            print('\n')
+            dl.print_middle_middle(f"{BLUE}2- Backup Database{RESET}")
+            print('\n')
+            dl.print_middle_middle(f"{RED} 3- Return main menu{RESET}")
+            print('\n')
+            dl.print_footer()
+            user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
 
-        if user_choice == "1":
-            password = dl.print_and_get_input("Please enter admin password to continue : ", 'middle', 'middle')
-            if check_admin_password(password):
-                dl.print_middle_middle("Password correct")
-                choice = dl.print_and_get_input(
-                    f"{RED}Do you want to delete database? (Y/N) :{RESET} ", 'middle', 'middle'
-                )
+            if user_choice == "":
+                return
+            elif user_choice == "1":
+                password = dl.print_and_get_input("Please enter admin password to continue : ", 'middle', 'middle')
+                if check_admin_password(password):
+                    dl.print_middle_middle("Password correct")
+                    choice = dl.print_and_get_input(
+                        f"{RED}Do you want to delete database? (Y/N) :{RESET} ", 'middle', 'middle'
+                    )
+                    choice = choice.upper()
+                    if choice == "Y":
+                        delete_database()
+                        dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
+                        continue
+                    elif choice == "N":
+                        dl.print_middle_middle("Database not deleted!")
+                        dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
+                        continue
+                    else:
+                        dl.print_middle_middle("Invalid choice!")
+                        dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
+                        continue
+                else:
+                    dl.print_middle_middle("Password not correct!")
+                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
+                    continue
+            elif user_choice == "2":
+                choice = dl.print_and_get_input(f"{GREEN}Do you want to backup database? (Y/N) :{RESET} ", 'middle', 'middle')
                 choice = choice.upper()
                 if choice == "Y":
-                    delete_database()
+                    backup_database(DB_FILE)
                     dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
                     continue
                 elif choice == "N":
-                    dl.print_middle_middle("Database not deleted!")
+                    dl.print_middle_middle("Database not backed up!")
                     dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
                     continue
                 else:
                     dl.print_middle_middle("Invalid choice!")
-                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
+                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu")
                     continue
-            else:
-                dl.print_middle_middle("Password not correct!")
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                continue
-        elif user_choice == "2":
-            choice = dl.print_and_get_input(f"{GREEN}Do you want to backup database? (Y/N) :{RESET} ", 'middle', 'middle')
-            choice = choice.upper()
-            if choice == "Y":
-                backup_database(DB_FILE)
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                continue
-            elif choice == "N":
-                dl.print_middle_middle("Database not backed up!")
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                continue
+            elif user_choice == "3":
+                break
             else:
                 dl.print_middle_middle("Invalid choice!")
                 dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu")
                 continue
-        elif user_choice == "3":
-            break
-        else:
-            dl.print_middle_middle("Invalid choice!")
-            dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu")
-            continue
+        except KeyboardInterrupt:
+            print('\n')
+            print_msg("info", "Action cancelled. Returning to menu...")
+            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            return
 
 # Admin Menu Ends Here
 # |---------------------------------------------------------------------------|
