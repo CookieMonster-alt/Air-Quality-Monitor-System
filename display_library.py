@@ -207,3 +207,16 @@ def create_head_titles(titles=[]):
 def create_data_in_middle_row(data=[]):
     all_sizes = divide_middle_column_in_three()
     return f'|{data[0]:^{all_sizes["Left size"]}}|{data[1]:^{all_sizes["Middle size"]}}|{data[2]:^{all_sizes["Right size"]}}|'
+
+def print_footer():
+    middle_size = create_three_columns()['Middle size']
+    left_pad = int(left_padding())
+
+    line = "-" * middle_size
+    print(f'\n{" " * left_pad}{line}')
+
+    footer_text = f"{LIGHT_GRAY}[ENTER] Submit/Skip  |  [CTRL+C] Cancel/Return{RESET}"
+    visible_length = get_visible_string_length(footer_text)
+    padding = (middle_size - visible_length) // 2
+
+    print(f'{" " * (left_pad + padding)}{footer_text}\n')
