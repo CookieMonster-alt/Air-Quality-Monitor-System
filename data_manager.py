@@ -49,6 +49,24 @@ class DatabaseManager:
                 timestamp TEXT NOT NULL
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                city_name TEXT NOT NULL,
+                predicted_aqi REAL NOT NULL,
+                prediction_date TEXT NOT NULL,
+                target_date TEXT NOT NULL,
+                decision_made TEXT NOT NULL
+            )
+        """)
+        self.conn.commit()
+
+    def add_prediction(self, city_name: str, predicted_aqi: float, prediction_date: str, target_date: str, decision_made: str):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO predictions (city_name, predicted_aqi, prediction_date, target_date, decision_made) VALUES (?, ?, ?, ?, ?)",
+            (city_name, predicted_aqi, prediction_date, target_date, decision_made)
+        )
         self.conn.commit()
 
     def add_record(self, record: CityRecord):
