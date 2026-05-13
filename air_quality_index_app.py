@@ -371,7 +371,7 @@ def menu_1():
                     f"Please enter air quality index for {GREEN}{city_name}{RESET}: ", 'middle', 'middle'
                 )
                 try:
-                    aqi = int(float(aqi_input))
+                    aqi = float(aqi_input)
                     new_record = CityRecord(city_name=city_name, aqi_value=aqi, timestamp=time_stamp())
                     db.add_record(new_record)
                     dl.print_middle_middle(f"AQI data for {GREEN}{city_name}{RESET} saved successfully!")
