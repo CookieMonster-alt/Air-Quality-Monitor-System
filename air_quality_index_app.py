@@ -76,6 +76,8 @@ import datetime
 import os, shutil
 import display_library as dl
 from data_manager import DatabaseManager, CityRecord, get_epa_category
+import api_integration
+import ai_engine
 
 # ------------------ Constant Variables ------------------|
 
@@ -461,18 +463,54 @@ def menu_2():
             all_records = db.get_all_records()
             cities_from_db = list(set([record.city_name for record in all_records]))
             dl.print_footer()
-            input_city = dl.print_and_get_input("Please enter city name to search : ", 'middle', 'middle')
+            input_city = dl.print_and_get_input("Please enter city name to search (Local or WAQI Live) : ", 'middle', 'middle')
             if input_city == '':
                 return
             city_name = input_city.title()
+
+            # Step 1: WAQI API Live Search
+            stations = api_integration.search_city_stations(city_name)
+            if stations:
+                print_msg("info", f"Found {len(stations)} live stations for {city_name} via WAQI API:")
+                for idx, st in enumerate(stations[:5]): # Show top 5
+                    dl.print_middle_middle(f"{idx + 1}- {st['station']['name']}")
+                print('\n')
+
+                dl.print_footer()
+                choice = dl.print_and_get_input(f"Choose a station (1-{min(5, len(stations))}) or press Enter to skip to local DB: ", 'middle', 'middle')
+                if choice.isdigit() and 1 <= int(choice) <= len(stations):
+                    selected_st = stations[int(choice) - 1]
+                    uid = selected_st['uid']
+                    print_msg("info", f"Fetching live AQI data for {selected_st['station']['name']}...")
+
+                    st_data = api_integration.get_station_aqi(uid)
+                    live_aqi = st_data.get("aqi")
+                    if live_aqi and isinstance(live_aqi, (int, float)):
+                        aqi_val = float(live_aqi)
+
+                        # Save to local DB
+                        new_record = CityRecord(city_name=city_name, aqi_value=aqi_val, timestamp=time_stamp())
+                        db.add_record(new_record)
+
+                        dl.print_middle_middle(f"Live WAQI: {BRIGHT_WHITE}{aqi_val}{RESET} ({get_epa_category(aqi_val)})")
+                        print_msg("success", "Live data saved to local database.")
+                    else:
+                        print_msg("error", "No valid AQI data available for this station currently.")
+
+                    dl.print_and_get_input(f'Press Enter to return to the main menu!', 'middle', 'middle')
+                    return
+            else:
+                print_msg("info", f"No live WAQI stations found for {city_name}. Searching local DB...")
+
+            # Step 2: Local DB Search Fallback
             if city_name in cities_from_db:
-                dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is found in the database!")
+                print_msg("success", f"{city_name} is found in the local database!")
                 choice = dl.print_and_get_input(f"Do you want to see the {GREEN}AQI{RESET} data? {RED}(Y/N){RESET}: ", 'middle', 'middle').upper()
                 print("\n")
                 if choice == "Y":
                     records = [record for record in all_records if record.city_name == city_name]
                     if not records:
-                        dl.print_middle_middle(f"No AQI records found for {GREEN}{city_name}.{RESET}")
+                        print_msg("info", f"No AQI records found for {city_name}.")
                     else:
                         dl.print_middle_middle(dl.draw_border_head('-','|'))
                         dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
@@ -488,8 +526,8 @@ def menu_2():
                         print("\n")
                         dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
             else:
-                dl.print_middle_middle(f"{GREEN}{city_name}{RESET} is not found in the database!")
-                dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
+                print_msg("error", f"{city_name} is not found in the local database!")
+                dl.print_and_get_input(f'Press Enter to return to the main menu!', 'middle', 'middle')
             return
         except KeyboardInterrupt:
             print('\n')
@@ -521,7 +559,9 @@ def menu_3():
             print('\n')
             dl.print_middle_middle(f"5- Executive Analytics Summary{RESET}")
             print('\n')
-            dl.print_middle_middle(RED + "6- Return main menu" + RESET)
+            dl.print_middle_middle(f"{MAGENTA}6- Run AI Engine Prediction{RESET}")
+            print('\n')
+            dl.print_middle_middle(RED + "7- Return main menu" + RESET)
             print('\n')
             dl.print_footer()
             user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
@@ -573,10 +613,51 @@ def menu_3():
                 dl.print_and_get_input(f"Press Enter to return to the Reports menu", 'middle', 'middle')
                 continue
             elif user_choice == "6":
-                break
-            elif user_choice > "6" or user_choice < "1":
+                dl.clear_screen()
+                dl.menu_title_centered('AI Prediction Engine'.upper(), '=', YELLOW)
+                all_records = db.get_all_records()
+                cities_from_db = list(set([record.city_name for record in all_records]))
+                dl.print_footer()
+                input_city = dl.print_and_get_input("Please enter city name for AI Prediction : ", 'middle', 'middle')
+                if input_city == "":
+                    continue
+                city_name = input_city.title()
+
                 print('\n')
-                dl.print_and_get_input(f"Invalid choice. Press {RED}Enter{RESET} to try again!!", 'middle', 'middle')
+                print_msg("info", f"Running AI Analysis on {city_name}...")
+                predicted_aqi = ai_engine.predict_next_aqi(city_name)
+
+                if predicted_aqi == 0.0:
+                    print_msg("error", "Insufficient data to run prediction.")
+                else:
+                    decision = ai_engine.evaluate_prediction(predicted_aqi)
+
+                    # Print dynamically
+                    dl.print_middle_middle(f"Predicted AQI: {BRIGHT_WHITE}{predicted_aqi}{RESET} ({get_epa_category(predicted_aqi)})")
+
+                    if "NORMAL" in decision:
+                        print_msg("success", decision)
+                    else:
+                        print_msg("error", decision)
+
+                    # Save AI state
+                    db.add_prediction(
+                        city_name=city_name,
+                        predicted_aqi=predicted_aqi,
+                        prediction_date=time_stamp(),
+                        target_date=time_stamp(), # For demo purposes, we project next current instance
+                        decision_made=decision
+                    )
+
+                dl.print_footer()
+                dl.print_and_get_input(f"Press Enter to return to the Reports menu", 'middle', 'middle')
+                continue
+            elif user_choice == "7":
+                break
+            elif user_choice > "7" or user_choice < "1":
+                print('\n')
+                print_msg("error", "Invalid choice. Please try again!!")
+                dl.print_and_get_input(f"Press Enter to continue...", 'middle', 'middle')
                 continue
             else:
                 print('\n')
