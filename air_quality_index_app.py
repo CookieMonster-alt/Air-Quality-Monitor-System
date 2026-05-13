@@ -73,7 +73,7 @@ import json
 import datetime
 import os, shutil
 import display_library as dl
-from data_manager import DatabaseManager, CityRecord
+from data_manager import DatabaseManager, CityRecord, get_epa_category
 
 # ------------------ Constant Variables ------------------|
 
@@ -309,7 +309,7 @@ def main_menu():
             dl.menu_title_centered('Air Quality Monitor System'.upper(), '=', YELLOW)
             dl.submenu_text_print('1- Data Entry Menu', BLUE)
             dl.submenu_text_print('2- Search Menu', BLUE)
-            dl.submenu_text_print('3- Reports and Analysis Menu', BLUE)
+            dl.submenu_text_print('3- Analytics & Reports', BLUE)
             dl.submenu_text_print('4- Admin Menu', BLUE)
             dl.submenu_text_print('5- Exit Program', RED)
             dl.print_footer()
@@ -507,7 +507,23 @@ def menu_3():
     while True:
         try:
             dl.clear_screen()
-            dl.menu_title_centered('Reports and Analysis Menu'.upper(), '=', YELLOW)
+            dl.menu_title_centered('Analytics & Reports'.upper(), '=', YELLOW)
+
+            avg_aqi = db.get_average_aqi()
+            highest_city = db.get_city_with_highest_aqi()
+
+            dl.print_middle_middle(f"Average System AQI: {avg_aqi:.2f} ({get_epa_category(avg_aqi)})")
+            print('\n')
+
+            if highest_city:
+                dl.print_middle_middle(f"Highest Pollution: {highest_city[0]} - {highest_city[1]} ({get_epa_category(highest_city[1])})")
+            else:
+                dl.print_middle_middle("Highest Pollution: No records available")
+
+            print('\n')
+            dl.print_middle_middle(f"{dl.divide_middle_column_in_three()['Middle size'] * '-'}")
+            print('\n')
+
             dl.print_middle_middle(f"{BLUE}1- Display from highest AQI data")
             print('\n')
             dl.print_middle_middle(f"2- Display from lowest AQI data")
