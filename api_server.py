@@ -2,6 +2,7 @@ import http.server
 import socketserver
 import json
 import re
+import os
 from data_manager import DatabaseManager, get_epa_category
 from dataclasses import asdict
 
@@ -53,8 +54,13 @@ class APIRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
+
+            # Use absolute path resolving to ensure index.html is found regardless of cwd
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            index_path = os.path.join(base_dir, 'index.html')
+
             try:
-                with open('index.html', 'rb') as f:
+                with open(index_path, 'rb') as f:
                     self.wfile.write(f.read())
             except FileNotFoundError:
                 self.wfile.write(b"<h1>index.html not found. Please create it.</h1>")
