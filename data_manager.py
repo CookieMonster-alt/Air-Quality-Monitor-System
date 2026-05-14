@@ -50,6 +50,10 @@ class DatabaseManager:
             )
         """)
         cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_city_date
+            ON records(city_name, timestamp)
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS predictions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 city_name TEXT NOT NULL,
@@ -69,13 +73,14 @@ class DatabaseManager:
         )
         self.conn.commit()
 
-    def add_record(self, record: CityRecord):
+    def add_record(self, record: CityRecord) -> bool:
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO records (city_name, aqi_value, timestamp) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO records (city_name, aqi_value, timestamp) VALUES (?, ?, ?)",
             (record.city_name, record.aqi_value, record.timestamp)
         )
         self.conn.commit()
+        return cursor.rowcount > 0
 
     def get_all_records(self) -> List[CityRecord]:
         cursor = self.conn.cursor()
