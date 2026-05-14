@@ -49,6 +49,17 @@ class DatabaseManager:
                 timestamp TEXT NOT NULL
             )
         """)
+
+        # Migration: Clean up any existing duplicates before applying the UNIQUE index
+        cursor.execute("""
+            DELETE FROM records
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM records
+                GROUP BY city_name, timestamp
+            )
+        """)
+
         cursor.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_city_date
             ON records(city_name, timestamp)
