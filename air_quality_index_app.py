@@ -679,9 +679,10 @@ def menu_5():
             inserted_count = 0
 
             with tui.create_spinner("Starting historical fetch simulation...") as progress:
+                task_id = progress.add_task("Starting historical fetch simulation...", total=None)
                 while current_date <= end_date:
                     # Update progress description
-                    progress.update(progress.task_ids[0], description=f"Fetching data for [cyan]{current_date.strftime('%Y-%m-%d')}[/]...")
+                    progress.update(task_id, description=f"Fetching data for [cyan]{current_date.strftime('%Y-%m-%d')}[/]...")
                     time.sleep(0.2)
 
                     # Apply +/- 5% change
