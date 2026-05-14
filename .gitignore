@@ -1,0 +1,12 @@
+# ByteRover & Git Ignore
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+aqi_data.db
+aqi_data.db.backup
+.env
+.venv
+env/
+venv/
+*.log

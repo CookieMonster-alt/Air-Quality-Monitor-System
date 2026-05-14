@@ -2,7 +2,7 @@ import urllib.request
 import urllib.parse
 import json
 
-WAQI_TOKEN = "demo"
+WAQI_TOKEN = "2f724a00fa5e556f03e3b5051a5250f320bfb047"
 
 def search_city_stations(keyword: str) -> list:
     encoded_keyword = urllib.parse.quote(keyword)
