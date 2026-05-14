@@ -12,7 +12,10 @@ db = DatabaseManager()
 # Helper to strip ANSI codes from string
 def strip_ansi(text: str) -> str:
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    return ansi_escape.sub('', text)
+    text = ansi_escape.sub('', text)
+    # also strip rich markup tags like [green] or [aqi_good]
+    rich_escape = re.compile(r'\[.*?\]')
+    return rich_escape.sub('', text)
 
 class APIRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
