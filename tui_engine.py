@@ -16,7 +16,7 @@ custom_theme = Theme({
     "muted": "dim #78909C",
     "aqi_good": "bold black on #00E400",
     "aqi_moderate": "bold black on #FFFF00",
-    "aqi_sensitive": "bold black on #FF7E00",
+    "aqi_sensitive": "bold white on #FF7E00",
     "aqi_unhealthy": "bold white on #FF0000",
     "aqi_very_unhealthy": "bold white on #8F3F97",
     "aqi_hazardous": "bold white on #7E0023"
