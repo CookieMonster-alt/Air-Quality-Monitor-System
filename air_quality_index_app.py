@@ -74,7 +74,7 @@ Available at: https://sentry.io/answers/print-colored-text-to-terminal-with-pyth
 import json
 import datetime
 import os, shutil
-import display_library as dl
+import tui_engine as tui
 from data_manager import DatabaseManager, CityRecord, get_epa_category
 import api_integration
 import ai_engine
@@ -117,17 +117,7 @@ def time_stamp():
     return time_stamp.isoformat(" ", "minutes")
 
 def print_msg(msg_type: str, text: str):
-    if msg_type == 'error':
-        color = BRIGHT_RED
-    elif msg_type == 'success':
-        color = BRIGHT_GREEN
-    elif msg_type == 'info':
-        color = BRIGHT_YELLOW
-    else:
-        color = RESET
-
-    formatted_msg = f"{color}{text}{RESET}"
-    dl.print_middle_middle(formatted_msg)
+    tui.show_msg(msg_type, text)
 
 # |--------------- End of Data Functions --------------|
 
@@ -142,18 +132,18 @@ It handles deleting the database file and backing it up.
 def delete_database():
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
-        print("Database deleted successfully!")
+        tui.show_msg("success", "Database deleted successfully!")
     else:
-        print("No database found to delete")
+        tui.show_msg("error", "No database found to delete")
 
 # Reference 10
 def backup_database(source_file):
     if os.path.exists(source_file):
         backup_file_name = f"backup_file_{time_stamp().replace(':', '-').replace(' ', '_')}_" + source_file
         shutil.copy(source_file, backup_file_name)
-        dl.print_middle_middle(f"Database backed up to {GREEN}{backup_file_name}{RESET}")
+        tui.show_msg("success", f"Database backed up to {backup_file_name}")
     else:
-        print("No database found to backup")
+        tui.show_msg("error", "No database found to backup")
 
 
 # |--------------- End of File Functions --------------|
@@ -172,73 +162,26 @@ It can sort all records by AQI value (highest or lowest), by city name
 def sort_by_highest_aqi():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.aqi_value, reverse=True)
-    dl.menu_title_centered('Sorted by highest AQI'.upper(), '=', YELLOW)
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    for each_item in sorted_list:
-        
-        data = [
-            f'{each_item.city_name}',
-            f'{each_item.aqi_value}',
-            f'{each_item.timestamp}'
-        ]
-        dl.print_middle_middle(dl.create_data_in_middle_row(data))
-        dl.print_middle_middle(dl.draw_border_head('-','|'))
-
+    rows = [[r.city_name, r.aqi_value, r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by highest AQI', ['City', 'AQI', 'Timestamp'], rows)
 
 def sort_by_lowest_aqi():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.aqi_value, reverse=False)
-    dl.menu_title_centered('Sorted by lowest AQI'.upper(), '=', YELLOW)
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    for each_item in sorted_list:
-        
-        data = [
-            f'{each_item.city_name}',
-            f'{each_item.aqi_value}',
-            f'{each_item.timestamp}'
-        ]
-        dl.print_middle_middle(dl.create_data_in_middle_row(data))
-        dl.print_middle_middle(dl.draw_border_head('-','|'))
-
+    rows = [[r.city_name, r.aqi_value, r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by lowest AQI', ['City', 'AQI', 'Timestamp'], rows)
 
 def sort_by_city_name_az():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.city_name, reverse=False)
-    dl.menu_title_centered('Sorted by city name  (A-Z)'.upper(), '=', YELLOW)
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    for each_item in sorted_list:
-        
-        data = [
-            f'{each_item.city_name}',
-            f'{each_item.aqi_value}',
-            f'{each_item.timestamp}'
-        ]
-        dl.print_middle_middle(dl.create_data_in_middle_row(data))
-        dl.print_middle_middle(dl.draw_border_head('-','|'))
-
+    rows = [[r.city_name, r.aqi_value, r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by city name  (A-Z)', ['City', 'AQI', 'Timestamp'], rows)
 
 def sort_by_city_name_za():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.city_name, reverse=True)
-    dl.menu_title_centered('Sorted by city name  (Z-A)'.upper(), '=', YELLOW)
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
-    dl.print_middle_middle(dl.draw_border_head('-','|'))
-    for each_item in sorted_list:
-        
-        data = [
-            f'{each_item.city_name}',
-            f'{each_item.aqi_value}',
-            f'{each_item.timestamp}'
-        ]
-        dl.print_middle_middle(dl.create_data_in_middle_row(data))
-        dl.print_middle_middle(dl.draw_border_head('-','|'))
+    rows = [[r.city_name, r.aqi_value, r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by city name  (Z-A)', ['City', 'AQI', 'Timestamp'], rows)
 
 
 def calculate_average_aqi():
@@ -272,26 +215,6 @@ def check_admin_password(password):
 
 # |--------- Main Menu and Display Functions ----------|
 
-def center_of_screen():
-    center = os.get_terminal_size // 2
-    return center
-
-# Reference 13
-def print_menu_title(title):
-    screen_width = os.get_terminal_size().columns
-    title_lenght = len(title)
-    line = "=" * title_lenght
-    print(f'{line:^{screen_width-9}}')
-    print(f'{title:^{screen_width}}')
-    print(f'{line:^{screen_width-9}}')
-    
-def draw_border_head():
-    border_widths = [16, 10, 21]
-    border_lines = []
-    for width in border_widths:
-        border_lines.append('-' * width)
-    connected_border_lines = '|'.join(border_lines)
-    print(f'|{connected_border_lines}|')
 
 
 # |---------------------------------------------------------------------------|
@@ -309,48 +232,43 @@ Menus:
 def main_menu():
     while True:
         try:
-            dl.clear_screen()
-            dl.menu_title_centered('Air Quality Monitor System'.upper(), '=', YELLOW)
-            dl.submenu_text_print('1- Data Entry Menu', BLUE)
-            dl.submenu_text_print('2- Search Menu', BLUE)
-            dl.submenu_text_print('3- Analytics & Reports', BLUE)
-            dl.submenu_text_print('4- Admin Menu', BLUE)
-            dl.submenu_text_print('5- Fetch Historical Data', BLUE)
-            dl.submenu_text_print('6- Exit Program', RED)
-            dl.print_footer()
-            choice =dl.print_and_get_input('Please choose one of option from menu :', 'middle', 'middle')
+            tui.clear_screen()
+            options = [
+                ("1", "Data Entry Menu"),
+                ("2", "Search Menu"),
+                ("3", "Analytics & Reports"),
+                ("4", "Admin Menu"),
+                ("5", "Fetch Historical Data"),
+                ("6", "[red]Exit Program[/]")
+            ]
+            tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
+            choice = tui.get_input("Please choose an option from the menu")
 
             if choice == "1":
                 menu_1()
-
             elif choice == "2":
                 menu_2()
-
             elif choice == "3":
                 menu_3()
-
             elif choice == "4":
                 menu_4()
-
             elif choice == "5":
                 menu_5()
-
             elif choice == "6":
-                exit_choice = dl.print_and_get_input(f"Do you want to {RED}Exit{RESET} the program? (Y/N) :", 'middle', 'middle')
+                exit_choice = tui.get_input("Do you want to Exit the program? (Y/N)", choices=["Y", "N", "y", "n"])
                 if exit_choice.upper() == "Y":
-                    dl.print_middle_middle('You logged out!!')
+                    tui.show_msg("info", "You logged out!!")
                     break
                 elif exit_choice.upper() == "N":
                     continue
-                else:
-                    dl.print_middle_middle("Invalid choice. Please enter Y or N.")
-                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to continue...", 'middle', 'middle')
+            elif choice == "":
+                break
             else:
-                dl.print_and_get_input("Invalid choice. Please try again!!", 'middle', 'middle')
+                tui.show_msg("error", "Invalid choice. Please try again!!")
+                tui.get_input("Press Enter to continue...")
         except KeyboardInterrupt:
-            print('\n')
-            dl.print_middle_middle(f"{BRIGHT_YELLOW}Action cancelled. Returning to main menu...{RESET}")
-            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            tui.show_msg("info", "Action cancelled. Returning to main menu...")
+            tui.get_input("Press Enter to continue")
             continue
             
 
@@ -363,37 +281,33 @@ def main_menu():
 # Data Entry Menu Starts Here
 def menu_1():
     while True:
-        dl.clear_screen()
-        dl.menu_title_centered('Data Entry Menu'.upper(), '=', YELLOW)
-        all_records = db.get_all_records()
-        cities_from_db = list(set([record.city_name for record in all_records]))
-        cities_from_db.sort()
-        city_list_number = 1
-        for city in cities_from_db:
-            dl.submenu_text_print(f"{city_list_number}- {city}", GREEN)
-            city_list_number += 1
-        add_new_city_option = len(cities_from_db) + 1
-        dl.submenu_text_print(f"{add_new_city_option}- Add New City", BLUE)
         try:
-            dl.print_footer()
-            city_number_input = dl.print_and_get_input(
-                f"Please choose a city number, or choose to add new city or type {RED}'exit'{RESET} to return to the main menu : ", 'middle', 'middle'
-            )
-            if city_number_input.lower() == "exit":
+            tui.clear_screen()
+            all_records = db.get_all_records()
+            cities_from_db = list(set([record.city_name for record in all_records]))
+            cities_from_db.sort()
+
+            options = []
+            for idx, city in enumerate(cities_from_db, 1):
+                options.append((str(idx), city))
+
+            add_new_city_option = len(cities_from_db) + 1
+            options.append((str(add_new_city_option), "[blue]Add New City[/]"))
+
+            tui.show_menu("DATA ENTRY MENU", options)
+            city_number_input = tui.get_input("Choose a city number, or type 'exit'")
+
+            if city_number_input.lower() == "exit" or city_number_input == "":
                 return
+
             city_name = None
-            if city_number_input == "":
-                return
-            elif city_number_input.isdigit():
+            if city_number_input.isdigit():
                 city_number = int(city_number_input)
                 if 0 < city_number <= len(cities_from_db):
                     city_name = cities_from_db[city_number - 1]
                 elif city_number == add_new_city_option:
                     while True:
-                        dl.print_footer()
-                        raw_city_input = dl.print_and_get_input(
-                            'Please enter the name of the new city to add : ', 'middle', 'middle'
-                        )
+                        raw_city_input = tui.get_input("Enter the name of the new city to add:")
                         clean_city_input = raw_city_input.strip()
 
                         if clean_city_input == "":
@@ -401,55 +315,49 @@ def menu_1():
                             break
 
                         if clean_city_input.isdigit():
-                            print_msg("error", "City name cannot be only numbers. Please try again.")
+                            tui.show_msg("error", "City name cannot be only numbers. Please try again.")
                             continue
 
                         new_city_name = clean_city_input.title()
 
                         if new_city_name in cities_from_db:
-                            print_msg("info", f"{new_city_name} already exists in the list")
+                            tui.show_msg("info", f"{new_city_name} already exists in the list")
                             break
                         else:
                             city_name = new_city_name
                             break
             if city_name:
                 while True:
-                    dl.print_footer()
-                    aqi_input = dl.print_and_get_input(
-                        f'Please enter air quality index for {GREEN}{city_name}{RESET}: ', 'middle', 'middle'
-                    )
+                    aqi_input = tui.get_input(f"Enter air quality index for [green]{city_name}[/]:")
 
                     if aqi_input == "":
-                        break
+                        return
 
                     try:
                         aqi = float(aqi_input)
                         if aqi < 0 or aqi > 500:
-                            print_msg("error", "Invalid AQI. Please enter a number between 0 and 500.")
+                            tui.show_msg("error", "AQI must be between 0 and 500. Please try again.")
                             continue
 
                         new_record = CityRecord(city_name=city_name, aqi_value=aqi, timestamp=time_stamp())
-                        db.add_record(new_record)
-                        print_msg("success", f"AQI data for {city_name} saved successfully!")
-                        continue_choice = dl.print_and_get_input(f'Do you want to add more data to {GREEN}{city_name}{RESET}? (Y/N) : ', 'middle', 'middle')
-                        if continue_choice.upper() == "Y":
-                            continue
-                        elif continue_choice.upper() == "N" or continue_choice == "":
-                            break
+                        is_new = db.add_record(new_record)
+                        if is_new:
+                            tui.show_msg("success", f"AQI data for {city_name} saved successfully!")
                         else:
-                            print_msg("error", "Invalid choice. Please enter Y or N.")
-                            continue
+                            tui.show_msg("info", f"AQI data for {city_name} at this timestamp already exists.")
+
+                        continue_choice = tui.get_input(f"Do you want to add more data to {city_name}? (Y/N)", choices=["Y", "N", "y", "n"])
+                        if continue_choice.upper() == "N" or continue_choice == "":
+                            break
                     except ValueError:
-                        print_msg("error", "Invalid AQI. Please enter a number between 0 and 500.")
+                        tui.show_msg("error", "Invalid AQI. Please enter a number between 0 and 500.")
             else:
-                print('\n')
-                print_msg("error", "Invalid choice.")
-                dl.print_and_get_input(f'Press Enter to try again', 'middle', 'middle')
+                tui.show_msg("error", "Invalid choice.")
+                tui.get_input("Press Enter to try again")
 
         except KeyboardInterrupt:
-            print('\n')
-            print_msg("info", "Action cancelled. Returning to menu...")
-            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            tui.show_msg("info", "Action cancelled. Returning to menu...")
+            tui.get_input("Press Enter to continue")
             return
 
 
@@ -462,12 +370,12 @@ def menu_1():
 def menu_2():
     while True:
         try:
-            dl.clear_screen()
-            dl.menu_title_centered('Search Menu'.upper(), '=', YELLOW)
+            tui.clear_screen()
             all_records = db.get_all_records()
             cities_from_db = list(set([record.city_name for record in all_records]))
-            dl.print_footer()
-            input_city = dl.print_and_get_input("Please enter city name to search (Local or WAQI Live) : ", 'middle', 'middle')
+
+            tui.show_menu("SEARCH MENU", []) # Just for title consistency
+            input_city = tui.get_input("Enter city name to search (Local or WAQI Live)")
             if input_city == '':
                 return
             city_name = input_city.title()
@@ -475,68 +383,60 @@ def menu_2():
             # Step 1: WAQI API Live Search
             stations = api_integration.search_city_stations(city_name)
             if stations:
-                print_msg("info", f"Found {len(stations)} live stations for {city_name} via WAQI API:")
-                for idx, st in enumerate(stations[:5]): # Show top 5
-                    dl.print_middle_middle(f"{idx + 1}- {st['station']['name']}")
-                print('\n')
+                tui.show_msg("info", f"Found {len(stations)} live stations for {city_name} via WAQI API")
 
-                dl.print_footer()
-                choice = dl.print_and_get_input(f"Choose a station (1-{min(5, len(stations))}) or press Enter to skip to local DB: ", 'middle', 'middle')
+                st_options = []
+                for idx, st in enumerate(stations[:5]):
+                    st_options.append((str(idx + 1), st['station']['name']))
+
+                tui.show_menu("Live WAQI Stations", st_options)
+
+                choice = tui.get_input(f"Choose a station (1-{min(5, len(stations))}) or press Enter to skip to local DB")
                 if choice.isdigit() and 1 <= int(choice) <= len(stations):
                     selected_st = stations[int(choice) - 1]
                     uid = selected_st['uid']
-                    print_msg("info", f"Fetching live AQI data for {selected_st['station']['name']}...")
 
-                    st_data = api_integration.get_station_aqi(uid)
+                    with tui.create_spinner(f"Fetching live AQI data for [cyan]{selected_st['station']['name']}[/]...") as progress:
+                        st_data = api_integration.get_station_aqi(uid)
+
                     live_aqi = st_data.get("aqi")
-                    if live_aqi and isinstance(live_aqi, (int, float)):
+                    if live_aqi and isinstance(live_aqi, (int, float)) or (isinstance(live_aqi, str) and live_aqi.isdigit()):
                         aqi_val = float(live_aqi)
 
                         # Save to local DB
                         new_record = CityRecord(city_name=city_name, aqi_value=aqi_val, timestamp=time_stamp())
                         db.add_record(new_record)
 
-                        dl.print_middle_middle(f"Live WAQI: {BRIGHT_WHITE}{aqi_val}{RESET} ({get_epa_category(aqi_val)})")
-                        print_msg("success", "Live data saved to local database.")
+                        tui.show_msg("info", f"Live WAQI: [bold white]{aqi_val}[/] ({get_epa_category(aqi_val)})")
+                        tui.show_msg("success", "Live data saved to local database.")
                     else:
-                        print_msg("error", "No valid AQI data available for this station currently.")
+                        tui.show_msg("error", "No valid AQI data available for this station currently.")
 
-                    dl.print_and_get_input(f'Press Enter to return to the main menu!', 'middle', 'middle')
+                    tui.get_input("Press Enter to return to the main menu!")
                     return
             else:
-                print_msg("info", f"No live WAQI stations found for {city_name}. Searching local DB...")
+                tui.show_msg("info", f"No live WAQI stations found for {city_name}. Searching local DB...")
 
             # Step 2: Local DB Search Fallback
             if city_name in cities_from_db:
-                print_msg("success", f"{city_name} is found in the local database!")
-                choice = dl.print_and_get_input(f"Do you want to see the {GREEN}AQI{RESET} data? {RED}(Y/N){RESET}: ", 'middle', 'middle').upper()
-                print("\n")
-                if choice == "Y":
+                tui.show_msg("success", f"{city_name} is found in the local database!")
+                choice = tui.get_input("Do you want to see the AQI data? (Y/N)", choices=["Y", "N", "y", "n"])
+
+                if choice.upper() == "Y":
                     records = [record for record in all_records if record.city_name == city_name]
                     if not records:
-                        print_msg("info", f"No AQI records found for {city_name}.")
+                        tui.show_msg("info", f"No AQI records found for {city_name}.")
                     else:
-                        dl.print_middle_middle(dl.draw_border_head('-','|'))
-                        dl.print_middle_middle(dl.create_head_titles(['City', 'AQI', 'Timestamp']))
-                        dl.print_middle_middle(dl.draw_border_head('-','|'))
-                        for record in records:
-                            data = [
-                                f'{city_name}',
-                                f'{record.aqi_value}',
-                                f'{record.timestamp}'
-                            ]
-                            dl.print_middle_middle(dl.create_data_in_middle_row(data))
-                            dl.print_middle_middle(dl.draw_border_head('-','|'))
-                        print("\n")
-                        dl.print_and_get_input(f'Press {RED}Enter{RESET} to return to the main menu!', 'middle', 'middle')
+                        rows = [[city_name, str(r.aqi_value), r.timestamp] for r in records]
+                        tui.show_table(f"Records for {city_name}", ['City', 'AQI', 'Timestamp'], rows)
+                        tui.get_input("Press Enter to return to the main menu!")
             else:
-                print_msg("error", f"{city_name} is not found in the local database!")
-                dl.print_and_get_input(f'Press Enter to return to the main menu!', 'middle', 'middle')
+                tui.show_msg("error", f"{city_name} is not found in the local database!")
+                tui.get_input("Press Enter to return to the main menu!")
             return
         except KeyboardInterrupt:
-            print('\n')
-            print_msg("info", "Action cancelled. Returning to menu...")
-            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            tui.show_msg("info", "Action cancelled. Returning to menu...")
+            tui.get_input("Press Enter to continue")
             return
 
 
@@ -547,102 +447,80 @@ def menu_2():
 # |---------------------------------------------------------------------------|
 # Reports and Analysis Menu Start Here
 def menu_3():
-    dl.clear_screen()
     while True:
         try:
-            dl.clear_screen()
-            dl.menu_title_centered('Analytics & Reports'.upper(), '=', YELLOW)
-
-            dl.print_middle_middle(f"{BLUE}1- Display from highest AQI data")
-            print('\n')
-            dl.print_middle_middle(f"2- Display from lowest AQI data")
-            print('\n')
-            dl.print_middle_middle(f"3- Display from city name (A-Z)")
-            print('\n')
-            dl.print_middle_middle(f"4- Display from city name (Z-A)")
-            print('\n')
-            dl.print_middle_middle(f"5- Executive Analytics Summary{RESET}")
-            print('\n')
-            dl.print_middle_middle(f"{MAGENTA}6- Run AI Engine Prediction{RESET}")
-            print('\n')
-            dl.print_middle_middle(RED + "7- Return main menu" + RESET)
-            print('\n')
-            dl.print_footer()
-            user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
+            tui.clear_screen()
+            options = [
+                ("1", "Display from highest AQI data"),
+                ("2", "Display from lowest AQI data"),
+                ("3", "Display from city name (A-Z)"),
+                ("4", "Display from city name (Z-A)"),
+                ("5", "Executive Analytics Summary"),
+                ("6", "[magenta]Run AI Engine Prediction[/]"),
+                ("7", "[red]Return main menu[/]")
+            ]
+            tui.show_menu("ANALYTICS & REPORTS", options)
+            user_choice = tui.get_input("Please choose an option from the menu")
 
             if user_choice == "":
                 return
             elif user_choice == "1":
-                dl.clear_screen()
+                tui.clear_screen()
                 sort_by_highest_aqi()
-                print('\n')
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                tui.get_input("Press Enter to return to the main menu")
                 continue
             elif user_choice == "2":
-                dl.clear_screen()
+                tui.clear_screen()
                 sort_by_lowest_aqi()
-                print('\n')
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                tui.get_input("Press Enter to return to the main menu")
                 continue
             elif user_choice == "3":
-                dl.clear_screen()
+                tui.clear_screen()
                 sort_by_city_name_az()
-                print('\n')
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                tui.get_input("Press Enter to return to the main menu")
                 continue
             elif user_choice == "4":
-                dl.clear_screen()
+                tui.clear_screen()
                 sort_by_city_name_za()
-                print('\n')
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the main menu", 'middle', 'middle')
+                tui.get_input("Press Enter to return to the main menu")
                 continue
             elif user_choice == "5":
-                dl.clear_screen()
-                dl.menu_title_centered('Executive Analytics Summary'.upper(), '=', YELLOW)
+                tui.clear_screen()
 
                 avg_aqi = db.get_average_aqi()
                 highest_city = db.get_city_with_highest_aqi()
 
-                print('\n')
-                dl.print_middle_middle(f"Average System AQI: {avg_aqi:.2f} ({get_epa_category(avg_aqi)})")
-                print('\n')
+                tui.show_msg("info", f"Average System AQI: {avg_aqi:.2f} ({get_epa_category(avg_aqi)})")
 
                 if highest_city:
-                    dl.print_middle_middle(f"Highest Pollution: {highest_city[0]} - {highest_city[1]} ({get_epa_category(highest_city[1])})")
+                    tui.show_msg("error", f"Highest Pollution: {highest_city[0]} - {highest_city[1]} ({get_epa_category(highest_city[1])})")
                 else:
-                    dl.print_middle_middle("Highest Pollution: No records available")
+                    tui.show_msg("info", "Highest Pollution: No records available")
 
-                print('\n')
-                dl.print_footer()
-                dl.print_and_get_input(f"Press Enter to return to the Reports menu", 'middle', 'middle')
+                tui.get_input("Press Enter to return to the Reports menu")
                 continue
             elif user_choice == "6":
-                dl.clear_screen()
-                dl.menu_title_centered('AI Prediction Engine'.upper(), '=', YELLOW)
-                all_records = db.get_all_records()
-                cities_from_db = list(set([record.city_name for record in all_records]))
-                dl.print_footer()
-                input_city = dl.print_and_get_input("Please enter city name for AI Prediction : ", 'middle', 'middle')
+                tui.clear_screen()
+                input_city = tui.get_input("Please enter city name for AI Prediction")
                 if input_city == "":
                     continue
                 city_name = input_city.title()
 
-                print('\n')
-                print_msg("info", f"Running AI Analysis on {city_name}...")
+                tui.show_msg("info", f"Running AI Analysis on {city_name}...")
                 predicted_aqi = ai_engine.predict_next_aqi(city_name)
 
                 if predicted_aqi == 0.0:
-                    print_msg("error", "Insufficient data to run prediction.")
+                    tui.show_msg("error", "Insufficient data to run prediction.")
                 else:
                     decision = ai_engine.evaluate_prediction(predicted_aqi)
 
                     # Print dynamically
-                    dl.print_middle_middle(f"Predicted AQI: {BRIGHT_WHITE}{predicted_aqi}{RESET} ({get_epa_category(predicted_aqi)})")
+                    tui.show_msg("info", f"Predicted AQI: [bold white]{predicted_aqi}[/] ({get_epa_category(predicted_aqi)})")
 
                     if "NORMAL" in decision:
-                        print_msg("success", decision)
+                        tui.show_msg("success", decision)
                     else:
-                        print_msg("error", decision)
+                        tui.show_msg("error", decision)
 
                     # Save AI state
                     db.add_prediction(
@@ -653,23 +531,17 @@ def menu_3():
                         decision_made=decision
                     )
 
-                dl.print_footer()
-                dl.print_and_get_input(f"Press Enter to return to the Reports menu", 'middle', 'middle')
+                tui.get_input("Press Enter to return to the Reports menu")
                 continue
             elif user_choice == "7":
                 break
-            elif user_choice > "7" or user_choice < "1":
-                print('\n')
-                print_msg("error", "Invalid choice. Please try again!!")
-                dl.print_and_get_input(f"Press Enter to continue...", 'middle', 'middle')
-                continue
             else:
-                print('\n')
-                return f"{RED}Invalid choice. Please try again!!{RESET}"
+                tui.show_msg("error", "Invalid choice. Please try again!!")
+                tui.get_input("Press Enter to continue...")
+                continue
         except KeyboardInterrupt:
-            print('\n')
-            print_msg("info", "Action cancelled. Returning to menu...")
-            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            tui.show_msg("info", "Action cancelled. Returning to menu...")
+            tui.get_input("Press Enter to continue")
             return
 
 
@@ -680,80 +552,52 @@ def menu_3():
 # |---------------------------------------------------------------------------|
 # Admin Menu Sarts Here
 def menu_4():
-    dl.clear_screen()
-    dl.menu_title_centered('Admin Menu'.upper(), '=', YELLOW)
     while True:
         try:
-            dl.clear_screen()
-            dl.menu_title_centered('Admin Menu'.upper(), '=', YELLOW)
-            print('\n')
-            dl.print_middle_middle(f"{BLUE}1- Delete Database{RESET}")
-            print('\n')
-            dl.print_middle_middle(f"{BLUE}2- Backup Database{RESET}")
-            print('\n')
-            dl.print_middle_middle(f"{BLUE}3- Export Database to JSON{RESET}")
-            print('\n')
-            dl.print_middle_middle(f"{RED}4- Return main menu{RESET}")
-            print('\n')
-            dl.print_footer()
-            user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
+            tui.clear_screen()
+            options = [
+                ("1", "Delete Database"),
+                ("2", "Backup Database"),
+                ("3", "Export Database to JSON"),
+                ("4", "[red]Return main menu[/]")
+            ]
+            tui.show_menu("ADMIN MENU", options)
+            user_choice = tui.get_input("Please choose an option from the menu")
 
             if user_choice == "":
                 return
             elif user_choice == "1":
-                password = dl.print_and_get_input("Please enter admin password to continue : ", 'middle', 'middle')
+                password = tui.get_input("Please enter admin password to continue", password=True)
                 if check_admin_password(password):
-                    dl.print_middle_middle("Password correct")
-                    choice = dl.print_and_get_input(
-                        f"{RED}Do you want to delete database? (Y/N) :{RESET} ", 'middle', 'middle'
-                    )
-                    choice = choice.upper()
-                    if choice == "Y":
+                    tui.show_msg("success", "Password correct")
+                    choice = tui.get_input("Do you want to delete database? (Y/N)", choices=["Y", "N", "y", "n"])
+                    if choice.upper() == "Y":
                         delete_database()
-                        dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                        continue
-                    elif choice == "N":
-                        dl.print_middle_middle("Database not deleted!")
-                        dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                        continue
                     else:
-                        dl.print_middle_middle("Invalid choice!")
-                        dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                        continue
+                        tui.show_msg("info", "Database not deleted!")
+                    tui.get_input("Press Enter to return to the admin menu")
                 else:
-                    dl.print_middle_middle("Password not correct!")
-                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                    continue
+                    tui.show_msg("error", "Password not correct!")
+                    tui.get_input("Press Enter to return to the admin menu")
             elif user_choice == "2":
-                choice = dl.print_and_get_input(f"{GREEN}Do you want to backup database? (Y/N) :{RESET} ", 'middle', 'middle')
-                choice = choice.upper()
-                if choice == "Y":
+                choice = tui.get_input("Do you want to backup database? (Y/N)", choices=["Y", "N", "y", "n"])
+                if choice.upper() == "Y":
                     backup_database(DB_FILE)
-                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                    continue
-                elif choice == "N":
-                    dl.print_middle_middle("Database not backed up!")
-                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu", 'middle', 'middle')
-                    continue
                 else:
-                    dl.print_middle_middle("Invalid choice!")
-                    dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu")
-                    continue
+                    tui.show_msg("info", "Database not backed up!")
+                tui.get_input("Press Enter to return to the admin menu")
             elif user_choice == "3":
                 filename = db.export_to_json()
-                print_msg("success", f"Data successfully exported to {filename}")
-                dl.print_and_get_input(f"Press Enter to return to the admin menu", 'middle', 'middle')
-                continue
+                tui.show_msg("success", f"Data successfully exported to {filename}")
+                tui.get_input("Press Enter to return to the admin menu")
             elif user_choice == "4":
                 break
             else:
-                dl.print_middle_middle("Invalid choice!")
-                dl.print_and_get_input(f"Press {RED}Enter{RESET} to return to the admin menu")
-                continue
+                tui.show_msg("error", "Invalid choice!")
+                tui.get_input("Press Enter to return to the admin menu")
         except KeyboardInterrupt:
-            print('\n')
-            print_msg("info", "Action cancelled. Returning to menu...")
-            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            tui.show_msg("info", "Action cancelled. Returning to menu...")
+            tui.get_input("Press Enter to continue")
             return
 
 # Admin Menu Ends Here
@@ -766,18 +610,15 @@ def menu_5():
 
     while True:
         try:
-            dl.clear_screen()
-            dl.menu_title_centered('Fetch Historical Data'.upper(), '=', YELLOW)
-            dl.print_middle_middle(f"{BLUE}1- Last 7 Days")
-            print('\n')
-            dl.print_middle_middle(f"2- Last 30 Days")
-            print('\n')
-            dl.print_middle_middle(f"3- Custom Date Range{RESET}")
-            print('\n')
-            dl.print_middle_middle(f"{RED}4- Return main menu{RESET}")
-            print('\n')
-            dl.print_footer()
-            user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
+            tui.clear_screen()
+            options = [
+                ("1", "Last 7 Days"),
+                ("2", "Last 30 Days"),
+                ("3", "Custom Date Range"),
+                ("4", "[red]Return main menu[/]")
+            ]
+            tui.show_menu("FETCH HISTORICAL DATA", options)
+            user_choice = tui.get_input("Please choose an option from the menu")
 
             if user_choice == "":
                 return
@@ -785,12 +626,11 @@ def menu_5():
                 break
 
             if user_choice not in ["1", "2", "3"]:
-                print_msg("error", "Invalid choice. Please try again!!")
-                dl.print_and_get_input(f"Press Enter to continue...", 'middle', 'middle')
+                tui.show_msg("error", "Invalid choice. Please try again!!")
+                tui.get_input("Press Enter to continue...")
                 continue
 
-            dl.print_footer()
-            input_city = dl.print_and_get_input("Enter city name to fetch data for: ", 'middle', 'middle')
+            input_city = tui.get_input("Enter city name to fetch data for")
             if input_city == "":
                 continue
             city_name = input_city.strip().title()
@@ -807,70 +647,67 @@ def menu_5():
             elif user_choice == "3":
                 while True:
                     try:
-                        dl.print_footer()
-                        s_date_str = dl.print_and_get_input("Enter start date (YYYY-MM-DD): ", 'middle', 'middle')
+                        s_date_str = tui.get_input("Enter start date (YYYY-MM-DD)")
                         if s_date_str == "":
                             break
                         start_date = datetime.datetime.strptime(s_date_str, "%Y-%m-%d").date()
 
-                        dl.print_footer()
-                        e_date_str = dl.print_and_get_input("Enter end date (YYYY-MM-DD): ", 'middle', 'middle')
+                        e_date_str = tui.get_input("Enter end date (YYYY-MM-DD)")
                         if e_date_str == "":
                             break
                         end_date = datetime.datetime.strptime(e_date_str, "%Y-%m-%d").date()
 
                         if start_date > end_date:
-                            print_msg("error", "Start date cannot be after end date.")
+                            tui.show_msg("error", "Start date cannot be after end date.")
                             continue
 
                         break
                     except ValueError:
-                        print_msg("error", "Invalid date format. Please use YYYY-MM-DD.")
+                        tui.show_msg("error", "Invalid date format. Please use YYYY-MM-DD.")
 
                 if not start_date or not end_date:
                     continue # Cancelled out of custom date input
 
-            print_msg("info", f"Locating WAQI anchor data for {city_name}...")
+            tui.show_msg("info", f"Locating WAQI anchor data for {city_name}...")
             base_aqi = api_integration.get_station_aqi_by_name(city_name)
 
             if base_aqi == 0.0:
-                print_msg("error", f"Could not find live anchor data for {city_name}. Proceeding with default baseline of 50.0")
+                tui.show_msg("error", f"Could not find live anchor data for {city_name}. Proceeding with default baseline of 50.0")
                 base_aqi = 50.0
-
-            print_msg("info", f"Starting historical fetch simulation...")
 
             current_date = start_date
             inserted_count = 0
 
-            while current_date <= end_date:
-                print_msg("info", f"Fetching data for {current_date.strftime('%Y-%m-%d')}...")
-                time.sleep(0.2)
+            with tui.create_spinner("Starting historical fetch simulation...") as progress:
+                while current_date <= end_date:
+                    # Update progress description
+                    progress.update(progress.task_ids[0], description=f"Fetching data for [cyan]{current_date.strftime('%Y-%m-%d')}[/]...")
+                    time.sleep(0.2)
 
-                # Apply +/- 5% change
-                variation = random.uniform(-0.05, 0.05)
-                simulated_aqi = round(base_aqi * (1 + variation), 1)
+                    # Apply +/- 5% change
+                    variation = random.uniform(-0.05, 0.05)
+                    simulated_aqi = round(base_aqi * (1 + variation), 1)
 
-                # Ensure within 0-500 bounds
-                simulated_aqi = max(0.0, min(500.0, simulated_aqi))
+                    # Ensure within 0-500 bounds
+                    simulated_aqi = max(0.0, min(500.0, simulated_aqi))
 
-                timestamp_str = datetime.datetime.combine(current_date, datetime.time(12, 0)).isoformat(" ", "minutes")
-                record = CityRecord(city_name=city_name, aqi_value=simulated_aqi, timestamp=timestamp_str)
+                    timestamp_str = datetime.datetime.combine(current_date, datetime.time(12, 0)).isoformat(" ", "minutes")
+                    record = CityRecord(city_name=city_name, aqi_value=simulated_aqi, timestamp=timestamp_str)
 
-                is_new = db.add_record(record)
-                if is_new:
-                    inserted_count += 1
+                    is_new = db.add_record(record)
+                    if is_new:
+                        inserted_count += 1
 
-                # Update base for next day for a random walk feel
-                base_aqi = simulated_aqi
-                current_date += timedelta(days=1)
+                    # Update base for next day for a random walk feel
+                    base_aqi = simulated_aqi
+                    current_date += timedelta(days=1)
 
-            print_msg("success", f"Successfully fetched and added {inserted_count} new unique records.")
-            dl.print_and_get_input("Press Enter to return to the Historical Data menu...", 'middle', 'middle')
+            tui.show_msg("success", f"Successfully fetched and added {inserted_count} new unique records.")
+            tui.get_input("Press Enter to return to the Historical Data menu...")
 
         except KeyboardInterrupt:
-            print('\n')
-            print_msg("info", "Action cancelled. Returning to menu...")
-            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            tui.show_msg("info", "Action cancelled. Returning to menu...")
+            tui.get_input("Press Enter to continue")
             return
 
 
