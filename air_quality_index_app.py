@@ -75,7 +75,7 @@ import json
 import datetime
 import os, shutil
 import tui_engine as tui
-from data_manager import DatabaseManager, CityRecord, get_epa_category, get_epa_color_tag
+from data_manager import DatabaseManager, CityRecord, get_epa_category, get_epa_color_tag, get_epa_color_hex, get_epa_category_raw
 import api_integration
 import ai_engine
 
@@ -162,26 +162,26 @@ It can sort all records by AQI value (highest or lowest), by city name
 def sort_by_highest_aqi():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.aqi_value, reverse=True)
-    rows = [[r.city_name, f"[{get_epa_color_tag(r.aqi_value)}]{r.aqi_value}[/]", r.timestamp] for r in sorted_list]
-    tui.show_table('Sorted by highest AQI', ['City', 'AQI', 'Timestamp'], rows)
+    rows = [[r.city_name, str(r.aqi_value), f"{get_epa_category_raw(r.aqi_value)} [{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by highest AQI', ['City', 'AQI', 'Category', 'Timestamp'], rows)
 
 def sort_by_lowest_aqi():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.aqi_value, reverse=False)
-    rows = [[r.city_name, f"[{get_epa_color_tag(r.aqi_value)}]{r.aqi_value}[/]", r.timestamp] for r in sorted_list]
-    tui.show_table('Sorted by lowest AQI', ['City', 'AQI', 'Timestamp'], rows)
+    rows = [[r.city_name, str(r.aqi_value), f"{get_epa_category_raw(r.aqi_value)} [{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by lowest AQI', ['City', 'AQI', 'Category', 'Timestamp'], rows)
 
 def sort_by_city_name_az():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.city_name, reverse=False)
-    rows = [[r.city_name, f"[{get_epa_color_tag(r.aqi_value)}]{r.aqi_value}[/]", r.timestamp] for r in sorted_list]
-    tui.show_table('Sorted by city name  (A-Z)', ['City', 'AQI', 'Timestamp'], rows)
+    rows = [[r.city_name, str(r.aqi_value), f"{get_epa_category_raw(r.aqi_value)} [{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by city name  (A-Z)', ['City', 'AQI', 'Category', 'Timestamp'], rows)
 
 def sort_by_city_name_za():
     list_data = db.get_all_records()
     sorted_list = sorted(list_data, key=lambda x: x.city_name, reverse=True)
-    rows = [[r.city_name, f"[{get_epa_color_tag(r.aqi_value)}]{r.aqi_value}[/]", r.timestamp] for r in sorted_list]
-    tui.show_table('Sorted by city name  (Z-A)', ['City', 'AQI', 'Timestamp'], rows)
+    rows = [[r.city_name, str(r.aqi_value), f"{get_epa_category_raw(r.aqi_value)} [{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in sorted_list]
+    tui.show_table('Sorted by city name  (Z-A)', ['City', 'AQI', 'Category', 'Timestamp'], rows)
 
 
 def calculate_average_aqi():
@@ -427,8 +427,8 @@ def menu_2():
                     if not records:
                         tui.show_msg("info", f"No AQI records found for {city_name}.")
                     else:
-                        rows = [[city_name, f"[{get_epa_color_tag(r.aqi_value)}]{r.aqi_value}[/]", r.timestamp] for r in records]
-                        tui.show_table(f"Records for {city_name}", ['City', 'AQI', 'Timestamp'], rows)
+                        rows = [[city_name, str(r.aqi_value), f"{get_epa_category_raw(r.aqi_value)} [{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
+                        tui.show_table(f"Records for {city_name}", ['City', 'AQI', 'Category', 'Timestamp'], rows)
                         tui.get_input("Press Enter to return to the main menu!")
             else:
                 tui.show_msg("error", f"{city_name} is not found in the local database!")

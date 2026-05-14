@@ -18,20 +18,37 @@ def get_epa_color_tag(aqi_value: float) -> str:
     else:
         return "aqi_hazardous"
 
+def get_epa_color_hex(aqi_value: float) -> str:
+    if aqi_value <= 50:
+        return "#00E400"
+    elif aqi_value <= 100:
+        return "#FFFF00"
+    elif aqi_value <= 150:
+        return "#FF7E00"
+    elif aqi_value <= 200:
+        return "#FF0000"
+    elif aqi_value <= 300:
+        return "#8F3F97"
+    else:
+        return "#7E0023"
+
+def get_epa_category_raw(aqi_value: float) -> str:
+    if aqi_value <= 50:
+        return "Good"
+    elif aqi_value <= 100:
+        return "Moderate"
+    elif aqi_value <= 150:
+        return "Unhealthy for Sensitive Groups"
+    elif aqi_value <= 200:
+        return "Unhealthy"
+    elif aqi_value <= 300:
+        return "Very Unhealthy"
+    else:
+        return "Hazardous"
+
 def get_epa_category(aqi_value: float) -> str:
     tag = get_epa_color_tag(aqi_value)
-    if aqi_value <= 50:
-        return f"[{tag}]Good[/]"
-    elif aqi_value <= 100:
-        return f"[{tag}]Moderate[/]"
-    elif aqi_value <= 150:
-        return f"[{tag}]Unhealthy for Sensitive Groups[/]"
-    elif aqi_value <= 200:
-        return f"[{tag}]Unhealthy[/]"
-    elif aqi_value <= 300:
-        return f"[{tag}]Very Unhealthy[/]"
-    else:
-        return f"[{tag}]Hazardous[/]"
+    return f"[{tag}]{get_epa_category_raw(aqi_value)}[/]"
 
 @dataclass
 class CityRecord:
