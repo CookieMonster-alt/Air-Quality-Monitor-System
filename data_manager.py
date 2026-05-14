@@ -4,19 +4,34 @@ import datetime
 from dataclasses import dataclass, asdict
 from typing import List
 
-def get_epa_category(aqi_value: float) -> str:
+def get_epa_color_tag(aqi_value: float) -> str:
     if aqi_value <= 50:
-        return "[aqi_good]Good[/]"
+        return "aqi_good"
     elif aqi_value <= 100:
-        return "[aqi_moderate]Moderate[/]"
+        return "aqi_moderate"
     elif aqi_value <= 150:
-        return "[aqi_sensitive]Unhealthy for Sensitive Groups[/]"
+        return "aqi_sensitive"
     elif aqi_value <= 200:
-        return "[aqi_unhealthy]Unhealthy[/]"
+        return "aqi_unhealthy"
     elif aqi_value <= 300:
-        return "[aqi_very_unhealthy]Very Unhealthy[/]"
+        return "aqi_very_unhealthy"
     else:
-        return "[aqi_hazardous]Hazardous[/]"
+        return "aqi_hazardous"
+
+def get_epa_category(aqi_value: float) -> str:
+    tag = get_epa_color_tag(aqi_value)
+    if aqi_value <= 50:
+        return f"[{tag}]Good[/]"
+    elif aqi_value <= 100:
+        return f"[{tag}]Moderate[/]"
+    elif aqi_value <= 150:
+        return f"[{tag}]Unhealthy for Sensitive Groups[/]"
+    elif aqi_value <= 200:
+        return f"[{tag}]Unhealthy[/]"
+    elif aqi_value <= 300:
+        return f"[{tag}]Very Unhealthy[/]"
+    else:
+        return f"[{tag}]Hazardous[/]"
 
 @dataclass
 class CityRecord:
