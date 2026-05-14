@@ -28,3 +28,19 @@ def get_station_aqi(uid: int) -> dict:
     except Exception as e:
         pass
     return {}
+
+def get_station_aqi_by_name(city_name: str) -> float:
+    """Helper to just fetch current AQI float by city name for historical generation."""
+    stations = search_city_stations(city_name)
+    if not stations:
+        return 0.0
+    # grab the first one
+    uid = stations[0].get('uid')
+    data = get_station_aqi(uid)
+    val = data.get('aqi')
+    if val and isinstance(val, (int, float)):
+        return float(val)
+    # try converting string if it's digit
+    if str(val).isdigit():
+        return float(val)
+    return 0.0

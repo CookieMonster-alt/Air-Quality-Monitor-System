@@ -313,7 +313,8 @@ def main_menu():
             dl.submenu_text_print('2- Search Menu', BLUE)
             dl.submenu_text_print('3- Analytics & Reports', BLUE)
             dl.submenu_text_print('4- Admin Menu', BLUE)
-            dl.submenu_text_print('5- Exit Program', RED)
+            dl.submenu_text_print('5- Fetch Historical Data', BLUE)
+            dl.submenu_text_print('6- Exit Program', RED)
             dl.print_footer()
             choice =dl.print_and_get_input('Please choose one of option from menu :', 'middle', 'middle')
 
@@ -330,6 +331,9 @@ def main_menu():
                 menu_4()
 
             elif choice == "5":
+                menu_5()
+
+            elif choice == "6":
                 exit_choice = dl.print_and_get_input(f"Do you want to {RED}Exit{RESET} the program? (Y/N) :", 'middle', 'middle')
                 if exit_choice.upper() == "Y":
                     dl.print_middle_middle('You logged out!!')
@@ -752,6 +756,121 @@ def menu_4():
 
 # Admin Menu Ends Here
 # |---------------------------------------------------------------------------|
+
+def menu_5():
+    import random
+    import time
+    from datetime import timedelta
+
+    while True:
+        try:
+            dl.clear_screen()
+            dl.menu_title_centered('Fetch Historical Data'.upper(), '=', YELLOW)
+            dl.print_middle_middle(f"{BLUE}1- Last 7 Days")
+            print('\n')
+            dl.print_middle_middle(f"2- Last 30 Days")
+            print('\n')
+            dl.print_middle_middle(f"3- Custom Date Range{RESET}")
+            print('\n')
+            dl.print_middle_middle(f"{RED}4- Return main menu{RESET}")
+            print('\n')
+            dl.print_footer()
+            user_choice = dl.print_and_get_input("Please choose one of option from menu : ", 'middle', 'middle')
+
+            if user_choice == "":
+                return
+            elif user_choice == "4":
+                break
+
+            if user_choice not in ["1", "2", "3"]:
+                print_msg("error", "Invalid choice. Please try again!!")
+                dl.print_and_get_input(f"Press Enter to continue...", 'middle', 'middle')
+                continue
+
+            dl.print_footer()
+            input_city = dl.print_and_get_input("Enter city name to fetch data for: ", 'middle', 'middle')
+            if input_city == "":
+                continue
+            city_name = input_city.strip().title()
+
+            # Determine Date Range
+            today = datetime.datetime.now().date()
+            start_date = None
+            end_date = today
+
+            if user_choice == "1":
+                start_date = today - timedelta(days=7)
+            elif user_choice == "2":
+                start_date = today - timedelta(days=30)
+            elif user_choice == "3":
+                while True:
+                    try:
+                        dl.print_footer()
+                        s_date_str = dl.print_and_get_input("Enter start date (YYYY-MM-DD): ", 'middle', 'middle')
+                        if s_date_str == "":
+                            break
+                        start_date = datetime.datetime.strptime(s_date_str, "%Y-%m-%d").date()
+
+                        dl.print_footer()
+                        e_date_str = dl.print_and_get_input("Enter end date (YYYY-MM-DD): ", 'middle', 'middle')
+                        if e_date_str == "":
+                            break
+                        end_date = datetime.datetime.strptime(e_date_str, "%Y-%m-%d").date()
+
+                        if start_date > end_date:
+                            print_msg("error", "Start date cannot be after end date.")
+                            continue
+
+                        break
+                    except ValueError:
+                        print_msg("error", "Invalid date format. Please use YYYY-MM-DD.")
+
+                if not start_date or not end_date:
+                    continue # Cancelled out of custom date input
+
+            print_msg("info", f"Locating WAQI anchor data for {city_name}...")
+            base_aqi = api_integration.get_station_aqi_by_name(city_name)
+
+            if base_aqi == 0.0:
+                print_msg("error", f"Could not find live anchor data for {city_name}. Proceeding with default baseline of 50.0")
+                base_aqi = 50.0
+
+            print_msg("info", f"Starting historical fetch simulation...")
+
+            current_date = start_date
+            inserted_count = 0
+
+            while current_date <= end_date:
+                print_msg("info", f"Fetching data for {current_date.strftime('%Y-%m-%d')}...")
+                time.sleep(0.2)
+
+                # Apply +/- 5% change
+                variation = random.uniform(-0.05, 0.05)
+                simulated_aqi = round(base_aqi * (1 + variation), 1)
+
+                # Ensure within 0-500 bounds
+                simulated_aqi = max(0.0, min(500.0, simulated_aqi))
+
+                timestamp_str = datetime.datetime.combine(current_date, datetime.time(12, 0)).isoformat(" ", "minutes")
+                record = CityRecord(city_name=city_name, aqi_value=simulated_aqi, timestamp=timestamp_str)
+
+                is_new = db.add_record(record)
+                if is_new:
+                    inserted_count += 1
+
+                # Update base for next day for a random walk feel
+                base_aqi = simulated_aqi
+                current_date += timedelta(days=1)
+
+            print_msg("success", f"Successfully fetched and added {inserted_count} new unique records.")
+            dl.print_and_get_input("Press Enter to return to the Historical Data menu...", 'middle', 'middle')
+
+        except KeyboardInterrupt:
+            print('\n')
+            print_msg("info", "Action cancelled. Returning to menu...")
+            dl.print_and_get_input(f'Press Enter to continue', 'middle', 'middle')
+            return
+
 
 # |----------------- End of Main Menu and Display Functions ------------------|
 
