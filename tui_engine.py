@@ -14,22 +14,20 @@ custom_theme = Theme({
     "danger": "bold #FF1744",
     "info": "italic #29B6F6",
     "muted": "dim #78909C",
-    "aqi_good": "#00E400",
-    "aqi_moderate": "#FFFF00",
-    "aqi_sensitive": "#FF7E00",
-    "aqi_unhealthy": "#FF0000",
-    "aqi_very_unhealthy": "#8F3F97",
-    "aqi_hazardous": "bold #7E0023"
+    "aqi_good": "bold black on #00E400",
+    "aqi_moderate": "bold black on #FFFF00",
+    "aqi_sensitive": "bold black on #FF7E00",
+    "aqi_unhealthy": "bold white on #FF0000",
+    "aqi_very_unhealthy": "bold white on #8F3F97",
+    "aqi_hazardous": "bold white on #7E0023"
 })
 
 console = Console(theme=custom_theme)
 
-import os
-
 from rich.padding import Padding
 
 def clear_screen():
-    os.system('cls' if os.name == 'nt' else 'clear')
+    console.clear()
 
 def show_menu(title: str, options: list):
     """
@@ -93,13 +91,11 @@ def show_table(title: str, columns: list, rows: list):
     """
     Displays a data table.
     """
-    table = Table(title=f"[brand]{title}[/]", box=box.SQUARE, header_style="accent", border_style="muted")
+    table = Table(title=f"[brand]{title}[/]", box=box.SQUARE, header_style="accent", border_style="muted", show_lines=True)
     for col in columns:
         table.add_column(col, justify="center")
     for row in rows:
-        # Add padding to row text to increase row spacing
-        padded_row = [f"\n{str(item)}\n" for item in row]
-        table.add_row(*padded_row)
+        table.add_row(*[str(item) for item in row])
 
     console.print(table, justify="center")
     print()
