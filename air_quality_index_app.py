@@ -557,7 +557,8 @@ def menu_4():
                 ("1", "Delete Database"),
                 ("2", "Backup Database"),
                 ("3", "Export Database to JSON"),
-                ("4", "[red]Return main menu[/]")
+                ("4", "Import WAQI Historical CSV Database"),
+                ("5", "[red]Return main menu[/]")
             ]
             tui.show_menu("ADMIN MENU", options)
             user_choice = tui.get_input("Please choose an option from the menu")
@@ -589,6 +590,40 @@ def menu_4():
                 tui.show_msg("success", f"Data successfully exported to {filename}")
                 tui.get_input("Press Enter to return to the admin menu")
             elif user_choice == "4":
+                file_path = tui.get_input("Enter the path to the WAQI CSV file")
+                if not file_path or not os.path.exists(file_path):
+                    tui.show_msg("error", "Invalid file path.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+
+                start_date = tui.get_input("Enter Start Date (YYYY-MM-DD)")
+                end_date = tui.get_input("Enter End Date (YYYY-MM-DD)")
+
+                try:
+                    # Quick check on format
+                    datetime.datetime.strptime(start_date, "%Y-%m-%d")
+                    datetime.datetime.strptime(end_date, "%Y-%m-%d")
+
+                    with tui.create_spinner("Processing Data...") as progress:
+                        task_id = progress.add_task("Processing Data...", total=None)
+                        stats = db.import_historical_csv_with_pandas(file_path, start_date, end_date)
+
+                    from rich.panel import Panel
+                    from tui_engine import console
+
+                    report_text = f"[info]Total Rows Processed:[/] [bold white]{stats['total_processed']}[/]\n"
+                    report_text += f"[info]New Records Inserted:[/] [success]{stats['newly_inserted']}[/]"
+
+                    panel = Panel(report_text, title="[success]Import Complete[/]", border_style="success", expand=False)
+                    console.print(panel, justify="center")
+
+                except ValueError as ve:
+                    tui.show_msg("error", f"Date format error: {str(ve)}")
+                except Exception as e:
+                    tui.show_msg("error", f"Import failed: {str(e)}")
+
+                tui.get_input("Press Enter to return to the admin menu")
+            elif user_choice == "5":
                 break
             else:
                 tui.show_msg("error", "Invalid choice!")
