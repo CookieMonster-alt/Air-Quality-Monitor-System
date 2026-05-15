@@ -1,5 +1,6 @@
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
+from rich.align import Align
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich import box
@@ -97,7 +98,12 @@ def show_table(title: str, columns: list, rows: list):
     for row in rows:
         table.add_row(*[str(item) for item in row])
 
-    console.print(table, justify="center")
+    footer = create_navigation_footer()
+    # Create a layout group that includes the footer at the top and bottom
+    render_group = Group(footer, Align.center(table), footer)
+
+    with console.pager(styles=True):
+        console.print(render_group)
     print()
 
 def print_footer():
@@ -106,6 +112,13 @@ def print_footer():
     """
     footer_text = "[muted][ENTER] Submit/Skip  |  [CTRL+C] Cancel/Return[/]"
     console.print(footer_text, justify="center")
+
+def create_navigation_footer():
+    """
+    Returns a navigation footer for the pager view.
+    """
+    footer_text = "[accent][↑/↓][/] [info]Scroll Data[/]  |  [accent][q][/] [info]Quit Table & Return to Menu[/]  |  [accent][ENTER][/] [info]Select Option[/]"
+    return Panel(Align.center(footer_text), box=box.ROUNDED, border_style="muted", expand=True)
 
 def create_spinner(text: str):
     """
