@@ -598,8 +598,17 @@ def menu_4():
                     tui.get_input("Press Enter to continue...")
                     continue
 
-                start_date = tui.get_input("Enter Start Date (YYYY-MM-DD)")
-                end_date = tui.get_input("Enter End Date (YYYY-MM-DD)")
+                if not os.path.isfile(file_path):
+                    tui.show_msg("error", "Path provided is a directory, not a file.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+
+                today = datetime.datetime.now().date()
+                default_start = (today - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+                default_end = today.strftime("%Y-%m-%d")
+
+                start_date = tui.get_input(f"Enter Start Date (YYYY-MM-DD) [default: {default_start}]", default=default_start)
+                end_date = tui.get_input(f"Enter End Date (YYYY-MM-DD) [default: {default_end}]", default=default_end)
 
                 try:
                     # Quick check on format
