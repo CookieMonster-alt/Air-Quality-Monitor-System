@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import datetime
+import pandas as pd
 from dataclasses import dataclass, asdict
 from typing import List
 
@@ -144,3 +145,76 @@ class DatabaseManager:
         with open(filename, "w") as json_file:
             json.dump(records_dict, json_file, indent=4)
         return filename
+
+    def import_historical_csv_with_pandas(self, file_path: str, start_date: str, end_date: str) -> dict:
+        """
+        Reads a WAQI historical CSV, filters it by date range and 'Specie' (pm25 or aqi),
+        and bulk inserts the cleaned data into the SQLite database.
+        Returns a dictionary with stats: {'total_processed': int, 'newly_inserted': int}.
+        """
+        try:
+            df = pd.read_csv(file_path, skipinitialspace=True)
+
+            # Map columns per requirements
+            if "Date" not in df.columns or "City" not in df.columns or "Specie" not in df.columns or "median" not in df.columns:
+                raise ValueError("CSV is missing required WAQI columns (Date, City, Specie, median).")
+
+            # Filter by Specie: 'pm25' or 'aqi'
+            df = df[df['Specie'].isin(['pm25', 'aqi'])]
+
+            # Clean data: drop rows where 'Date', 'City', or 'median' is NaN
+            df = df.dropna(subset=['Date', 'City', 'median'])
+
+            # Convert 'Date' to datetime for safe filtering
+            df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+            df = df.dropna(subset=['Date']) # Drop any that failed to parse
+
+            # Create a date mask and apply
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+            mask = (df['Date'] >= start_dt) & (df['Date'] <= end_dt)
+            df_filtered = df.loc[mask].copy()
+
+            total_processed = len(df_filtered)
+            if total_processed == 0:
+                return {"total_processed": 0, "newly_inserted": 0}
+
+            # Format datetime back to ISO strings that our app expects (e.g., 'YYYY-MM-DD HH:MM')
+            # Assuming the CSV dates are just daily, we will append a default time of 12:00 if no time exists
+            # to match our simulated anchor data format, or just ISO format it.
+            df_filtered['timestamp'] = df_filtered['Date'].dt.strftime('%Y-%m-%d %H:%M')
+
+            # Prepare tuples for bulk insert
+            # Columns needed for INSERT: city_name, aqi_value, timestamp
+            # Make sure city names are title cased to match app behavior
+            df_filtered['City'] = df_filtered['City'].astype(str).str.title().str.strip()
+
+            records_to_insert = list(zip(
+                df_filtered['City'],
+                df_filtered['median'].astype(float),
+                df_filtered['timestamp']
+            ))
+
+            cursor = self.conn.cursor()
+
+            # executemany doesn't easily return the number of *successfully* inserted rows
+            # when using INSERT OR IGNORE, because it counts the executed statements.
+            # We can count rows before and after to get exact delta.
+            cursor.execute("SELECT COUNT(id) FROM records")
+            count_before = cursor.fetchone()[0]
+
+            cursor.executemany(
+                "INSERT OR IGNORE INTO records (city_name, aqi_value, timestamp) VALUES (?, ?, ?)",
+                records_to_insert
+            )
+            self.conn.commit()
+
+            cursor.execute("SELECT COUNT(id) FROM records")
+            count_after = cursor.fetchone()[0]
+
+            newly_inserted = count_after - count_before
+
+            return {"total_processed": total_processed, "newly_inserted": newly_inserted}
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to process CSV with Pandas: {str(e)}")
