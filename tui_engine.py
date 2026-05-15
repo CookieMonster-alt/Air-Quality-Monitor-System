@@ -23,7 +23,12 @@ custom_theme = Theme({
     "aqi_hazardous": "bold white on #7E0023"
 })
 
-console = Console(theme=custom_theme)
+import os
+# Ensure LESS is configured to interpret raw ANSI escape sequences
+os.environ["LESS"] = os.environ.get("LESS", "") + " -R"
+
+# Force 256 color system so the default `less` pager doesn't choke on 24-bit TrueColor ANSI codes.
+console = Console(theme=custom_theme, color_system="256")
 
 from rich.padding import Padding
 
