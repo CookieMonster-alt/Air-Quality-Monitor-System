@@ -107,22 +107,21 @@ def show_table(title: str, columns: list, rows: list):
     # Create a layout group that includes the footer at the top and bottom
     render_group = Group(footer, Align.center(table), footer)
 
-    with console.pager(styles=True):
-        console.print(render_group)
+    console.print(render_group)
     print()
 
 def print_footer():
     """
     Footer explaining shortcuts.
     """
-    footer_text = "[muted][ENTER] Submit/Skip  |  [CTRL+C] Cancel/Return[/]"
+    footer_text = r"[muted]\[ENTER] Submit/Skip  |  \[CTRL+C] Cancel/Return[/]"
     console.print(footer_text, justify="center")
 
 def create_navigation_footer():
     """
-    Returns a navigation footer for the pager view.
+    Returns a navigation footer for the table view.
     """
-    footer_text = "[accent][↑/↓][/] [info]Scroll Data[/]  |  [accent][q][/] [info]Quit Table & Return to Menu[/]  |  [accent][ENTER][/] [info]Select Option[/]"
+    footer_text = r"[accent]\[↑/↓][/] [info]Scroll Data[/]  |  [accent]\[q][/] [info]Quit Table & Return to Menu[/]  |  [accent]\[ENTER][/] [info]Select Option[/]"
     return Panel(Align.center(footer_text), box=box.ROUNDED, border_style="muted", expand=True)
 
 def create_spinner(text: str):
