@@ -93,7 +93,7 @@ def show_msg(msg_type: str, text: str):
         console.print(text, justify="center")
     print() # spacing after message
 
-def show_table(title: str, columns: list, rows: list):
+def show_table(title: str, columns: list, rows: list, use_pager: bool = False):
     """
     Displays a data table.
     """
@@ -107,7 +107,11 @@ def show_table(title: str, columns: list, rows: list):
     # Create a layout group that includes the footer at the top and bottom
     render_group = Group(footer, Align.center(table), footer)
 
-    console.print(render_group)
+    if use_pager:
+        with console.pager(styles=True):
+            console.print(render_group)
+    else:
+        console.print(render_group)
     print()
 
 def print_footer():

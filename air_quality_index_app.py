@@ -367,6 +367,40 @@ def menu_1():
 
 # |---------------------------------------------------------------------------|
 # Search Menu Start Here
+def get_city_selection(prompt_text: str) -> str:
+    """
+    Centralized smart search engine.
+    Uses DatabaseManager.find_city_matches to provide partial or fuzzy matched suggestions.
+    """
+    query = tui.get_input(prompt_text)
+    if not query:
+        return ""
+
+    matches, is_fuzzy = db.find_city_matches(query)
+
+    if not matches:
+        return query.title()
+
+    if len(matches) == 1 and matches[0].lower() == query.strip().lower():
+        return matches[0]
+
+    tui.clear_screen()
+    if is_fuzzy:
+        tui.show_msg("warning", "Exact match not found. Showing closest suggestions:")
+
+    rows = [[str(idx), city] for idx, city in enumerate(matches, 1)]
+    tui.show_table("Select a City", ["ID", "City Name"], rows)
+
+    choice = tui.get_input("[info]Multiple cities found. Select ID to proceed, or press Enter to cancel[/]")
+    if not choice or not choice.isdigit():
+        return ""
+
+    idx = int(choice) - 1
+    if 0 <= idx < len(matches):
+        return matches[idx]
+
+    return ""
+
 def menu_2():
     while True:
         try:
@@ -375,10 +409,9 @@ def menu_2():
             cities_from_db = list(set([record.city_name for record in all_records]))
 
             tui.show_menu("SEARCH MENU", []) # Just for title consistency
-            input_city = tui.get_input("Enter city name to search (Local or WAQI Live)")
-            if input_city == '':
+            city_name = get_city_selection("Enter city name to search (Local or WAQI Live)")
+            if not city_name:
                 return
-            city_name = input_city.title()
 
             # Step 1: WAQI API Live Search
             stations = api_integration.search_city_stations(city_name)
@@ -501,10 +534,9 @@ def menu_3():
                 continue
             elif user_choice == "6":
                 tui.clear_screen()
-                input_city = tui.get_input("Please enter city name for AI Prediction")
-                if input_city == "":
+                city_name = get_city_selection("Please enter city name for AI Prediction")
+                if not city_name:
                     continue
-                city_name = input_city.title()
 
                 tui.show_msg("info", f"Running AI Analysis on {city_name}...")
                 predicted_aqi = ai_engine.predict_next_aqi(city_name)
@@ -568,25 +600,46 @@ def delete_data_menu():
                 return
 
             elif user_choice == "1":
-                city_name = tui.get_input("Enter city name to delete").strip().title()
+                city_name = get_city_selection("Enter city name to delete")
                 if not city_name:
                     continue
 
-                count = db.count_records(city_name=city_name)
-                if count == 0:
+                records = db.get_records_by_city(city_name)
+                if not records:
                     tui.show_msg("info", f"No records found for {city_name}.")
                     tui.get_input("Press Enter to continue...")
                     continue
 
-                tui.show_msg("warning", f"Uyarı: {city_name} şehrine ait {count} kayıt bulundu.")
-                confirm = tui.get_input(f"[danger]Are you sure? Type the city name '{city_name}' to confirm deletion, or press Enter to cancel[/]")
+                # Show Preview Table
+                tui.clear_screen()
+                from data_manager import get_epa_category_raw, get_epa_color_hex
+                rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
+                tui.show_table(f"Preview: {city_name} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
 
-                if confirm.strip().title() == city_name:
+                choice = tui.get_input("[info]Enter IDs to delete (e.g., 1, 4, 5)[/]\n[danger]Type 'ALL' to delete all listed records[/]\n[accent]Type 'C' to Cancel[/]\n> ")
+
+                if not choice or choice.strip().upper() == 'C':
+                    tui.show_msg("info", "Deletion cancelled.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+                elif choice.strip().upper() == 'ALL':
                     deleted = db.delete_records(city_name=city_name)
                     tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
                 else:
-                    tui.show_msg("info", "Deletion cancelled.")
-                tui.get_input("Press Enter to continue...")
+                    # Granular Deletion
+                    try:
+                        ids_to_delete = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
+                        if not ids_to_delete:
+                            raise ValueError()
+
+                        deleted = db.delete_records_by_ids(ids_to_delete)
+                        tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                    except ValueError:
+                        tui.show_msg("error", "Invalid ID format. Operation cancelled.")
+
+                    tui.get_input("Press Enter to continue...")
 
             elif user_choice == "2":
                 start_date = tui.get_input("Enter Start Date (YYYY-MM-DD)")
@@ -760,10 +813,9 @@ def menu_5():
                 tui.get_input("Press Enter to continue...")
                 continue
 
-            input_city = tui.get_input("Enter city name to fetch data for")
-            if input_city == "":
+            city_name = get_city_selection("Enter city name to fetch data for")
+            if not city_name:
                 continue
-            city_name = input_city.strip().title()
 
             # Determine Date Range
             today = datetime.datetime.now().date()
