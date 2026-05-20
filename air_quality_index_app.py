@@ -67,6 +67,8 @@ Available at: https://www.tutorialspoint.com/how-to-align-text-strings-using-pyt
 Available at: https://sentry.io/answers/print-colored-text-to-terminal-with-python/
 """
 
+# This is a simple comment added for testing purposes
+
 # ------------------ Import Libraries ------------------|
 
 import json

@@ -3,6 +3,7 @@ import socketserver
 import json
 import re
 import os
+# pyrefly: ignore [missing-import]
 from data_manager import DatabaseManager, get_epa_category
 from dataclasses import asdict
 

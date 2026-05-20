@@ -1,4 +1,5 @@
 import datetime
+# pyrefly: ignore [missing-import]
 from data_manager import DatabaseManager
 
 # Strict output constants
@@ -22,6 +23,7 @@ def get_recent_history(city_name: str) -> list:
 
 try:
     # Try importing Transformers for potential complex TS modeling
+    # pyrefly: ignore [missing-import]
     import transformers
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
