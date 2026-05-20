@@ -294,7 +294,7 @@ def menu_6():
                                 str_row.extend(["Unknown", ""])
                         str_rows.append(str_row)
 
-                    tui.show_table("AILO Results", headers, str_rows, use_pager=True)
+                    tui.show_table("AILO Results", headers, str_rows, use_pager=False)
 
             tui.get_input("Press Enter to continue")
 
