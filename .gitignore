@@ -1,3 +1,17 @@
+migrate-to-sqlite-8021394200269065640
 __pycache__/
 *.pyc
 aqi_data.db
+# ByteRover & Git Ignore
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+aqi_data.db
+aqi_data.db.backup
+.env
+.venv
+env/
+venv/
+*.log
+main
