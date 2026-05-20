@@ -27,8 +27,9 @@ import os
 # Ensure LESS is configured to interpret raw ANSI escape sequences
 os.environ["LESS"] = os.environ.get("LESS", "") + " -R"
 
-# Force 256 color system so the default `less` pager doesn't choke on 24-bit TrueColor ANSI codes.
-console = Console(theme=custom_theme, color_system="256")
+# Let rich auto-detect the optimal color system to prevent ANSI escape bleed
+# on terminals that do not support or misinterpret the forced '256' flag (or dim attributes).
+console = Console(theme=custom_theme)
 
 from rich.padding import Padding
 
