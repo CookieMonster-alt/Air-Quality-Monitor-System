@@ -549,12 +549,103 @@ def menu_3():
 
 # |---------------------------------------------------------------------------|
 # Admin Menu Sarts Here
+def delete_data_menu():
+    while True:
+        try:
+            tui.clear_screen()
+            options = [
+                ("1", "Delete by City"),
+                ("2", "Delete by Date Range"),
+                ("3", "[danger]Factory Reset (Delete ALL Data)[/]"),
+                ("4", "[red]Return Admin Menu[/]")
+            ]
+            tui.show_menu("DELETE DATA", options)
+            user_choice = tui.get_input("Please choose an option from the menu")
+
+            if user_choice == "" or user_choice == "4":
+                return
+
+            elif user_choice == "1":
+                city_name = tui.get_input("Enter city name to delete").strip().title()
+                if not city_name:
+                    continue
+
+                count = db.count_records(city_name=city_name)
+                if count == 0:
+                    tui.show_msg("info", f"No records found for {city_name}.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+
+                tui.show_msg("warning", f"Uyarı: {city_name} şehrine ait {count} kayıt bulundu.")
+                confirm = tui.get_input(f"[danger]Are you sure? Type the city name '{city_name}' to confirm deletion, or press Enter to cancel[/]")
+
+                if confirm.strip().title() == city_name:
+                    deleted = db.delete_records(city_name=city_name)
+                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                else:
+                    tui.show_msg("info", "Deletion cancelled.")
+                tui.get_input("Press Enter to continue...")
+
+            elif user_choice == "2":
+                start_date = tui.get_input("Enter Start Date (YYYY-MM-DD)")
+                end_date = tui.get_input("Enter End Date (YYYY-MM-DD)")
+                if not start_date or not end_date:
+                    continue
+                try:
+                    datetime.datetime.strptime(start_date, "%Y-%m-%d")
+                    datetime.datetime.strptime(end_date, "%Y-%m-%d")
+                except ValueError:
+                    tui.show_msg("error", "Invalid date format.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+
+                count = db.count_records(start_date=start_date, end_date=end_date)
+                if count == 0:
+                    tui.show_msg("info", f"No records found between {start_date} and {end_date}.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+
+                tui.show_msg("warning", f"Uyarı: Bu tarih aralığına ait {count} kayıt bulundu.")
+                confirm = tui.get_input("[danger]Are you sure? Type 'DELETE' to confirm deletion, or press Enter to cancel[/]")
+
+                if confirm.strip().upper() == "DELETE":
+                    deleted = db.delete_records(start_date=start_date, end_date=end_date)
+                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                else:
+                    tui.show_msg("info", "Deletion cancelled.")
+                tui.get_input("Press Enter to continue...")
+
+            elif user_choice == "3":
+                count = db.count_records(count_all=True)
+                if count == 0:
+                    tui.show_msg("info", "Database is already empty.")
+                    tui.get_input("Press Enter to continue...")
+                    continue
+
+                tui.show_msg("warning", f"Uyarı: Veritabanındaki tüm ({count}) kayıtlar silinecek!")
+                confirm = tui.get_input("[danger]Are you sure? Type 'DELETE ALL' to confirm deletion, or press Enter to cancel[/]")
+
+                if confirm.strip().upper() == "DELETE ALL":
+                    deleted = db.delete_records(delete_all=True)
+                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                else:
+                    tui.show_msg("info", "Deletion cancelled.")
+                tui.get_input("Press Enter to continue...")
+
+            else:
+                tui.show_msg("error", "Invalid choice!")
+                tui.get_input("Press Enter to continue...")
+
+        except KeyboardInterrupt:
+            tui.show_msg("info", "Action cancelled. Returning to menu...")
+            return
+
 def menu_4():
     while True:
         try:
             tui.clear_screen()
             options = [
-                ("1", "Delete Database"),
+                ("1", "Delete Data"),
                 ("2", "Backup Database"),
                 ("3", "Export Database to JSON"),
                 ("4", "Import WAQI Historical CSV Database"),
@@ -569,12 +660,7 @@ def menu_4():
                 password = tui.get_input("Please enter admin password to continue", password=True)
                 if check_admin_password(password):
                     tui.show_msg("success", "Password correct")
-                    choice = tui.get_input("Do you want to delete database? (Y/N)", choices=["Y", "N", "y", "n"])
-                    if choice.upper() == "Y":
-                        delete_database()
-                    else:
-                        tui.show_msg("info", "Database not deleted!")
-                    tui.get_input("Press Enter to return to the admin menu")
+                    delete_data_menu()
                 else:
                     tui.show_msg("error", "Password not correct!")
                     tui.get_input("Press Enter to return to the admin menu")
