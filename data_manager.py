@@ -2,8 +2,9 @@ import sqlite3
 import json
 import datetime
 import pandas as pd
+import difflib
 from dataclasses import dataclass, asdict
-from typing import List
+from typing import List, Tuple
 
 def get_epa_color_tag(aqi_value: float) -> str:
     if aqi_value <= 50:
@@ -56,6 +57,7 @@ class CityRecord:
     city_name: str
     aqi_value: float
     timestamp: str
+    id: int = None
 
 class DatabaseManager:
     def __init__(self, db_name="aqi_data.db"):
@@ -119,9 +121,48 @@ class DatabaseManager:
 
     def get_all_records(self) -> List[CityRecord]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT city_name, aqi_value, timestamp FROM records")
+        cursor.execute("SELECT id, city_name, aqi_value, timestamp FROM records")
         rows = cursor.fetchall()
-        return [CityRecord(city_name=row[0], aqi_value=row[1], timestamp=row[2]) for row in rows]
+        return [CityRecord(id=row[0], city_name=row[1], aqi_value=row[2], timestamp=row[3]) for row in rows]
+
+    def get_records_by_city(self, city_name: str) -> List[CityRecord]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, city_name, aqi_value, timestamp FROM records WHERE city_name = ?", (city_name,))
+        rows = cursor.fetchall()
+        return [CityRecord(id=row[0], city_name=row[1], aqi_value=row[2], timestamp=row[3]) for row in rows]
+
+    def find_city_matches(self, query: str) -> Tuple[List[str], bool]:
+        """
+        Returns a tuple: (list_of_matched_cities, is_fuzzy_match).
+        Step A: Tries SQLite LIKE.
+        Step B: If empty, tries fuzzy matching via difflib.
+        """
+        cursor = self.conn.cursor()
+        query_clean = query.strip()
+
+        # Step A: Partial Match
+        cursor.execute("SELECT DISTINCT city_name FROM records WHERE city_name LIKE ?", (f"%{query_clean}%",))
+        partial_matches = [row[0] for row in cursor.fetchall()]
+
+        if partial_matches:
+            return partial_matches, False
+
+        # Step B: Fuzzy Match Fallback
+        cursor.execute("SELECT DISTINCT city_name FROM records")
+        all_cities = [row[0] for row in cursor.fetchall()]
+        fuzzy_matches = difflib.get_close_matches(query_clean.title(), all_cities, n=5, cutoff=0.5)
+
+        return fuzzy_matches, True
+
+    def delete_records_by_ids(self, ids: List[int]) -> int:
+        if not ids:
+            return 0
+        cursor = self.conn.cursor()
+        placeholders = ",".join(["?"] * len(ids))
+        cursor.execute(f"DELETE FROM records WHERE id IN ({placeholders})", tuple(ids))
+        rows_deleted = cursor.rowcount
+        self.conn.commit()
+        return rows_deleted
 
     def get_average_aqi(self) -> float:
         cursor = self.conn.cursor()
