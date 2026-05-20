@@ -76,6 +76,7 @@ import tui_engine as tui
 from data_manager import DatabaseManager, CityRecord, get_epa_category, get_epa_color_tag, get_epa_color_hex, get_epa_category_raw
 import api_integration
 import ai_engine
+from ai_llm_engine import AIEngine
 
 # ------------------ Constant Variables ------------------|
 
@@ -227,6 +228,79 @@ Menus:
 - menu_4: Contains administrative functions like deleting or backing up data.
 """
 
+def menu_6():
+    tui.clear_screen()
+    tui.show_msg("info", "Initializing AILO (AI Local Operator)...")
+
+    with tui.create_spinner("Loading Qwen2.5-Coder Model (this may take a while)...") as progress:
+        task_id = progress.add_task("Loading Qwen2.5-Coder Model (this may take a while)...", total=None)
+        ai = AIEngine()
+        ai._ensure_model_loaded()
+
+    while True:
+        try:
+            tui.clear_screen()
+            tui.show_menu("TALK TO AILO (Text-to-SQL)", [])
+            tui.show_msg("info", "Ask me questions about your database! Examples:\n- 'How many records do we have?'\n- 'Get the top 5 cities with the highest AQI'")
+
+            prompt = tui.get_input("Your Question (or press Enter to exit)")
+            if not prompt:
+                return
+
+            with tui.create_spinner("AILO is thinking...") as progress:
+                task_id = progress.add_task("AILO is thinking...", total=None)
+                sql_query = ai.translate_text_to_sql(prompt)
+
+            if not sql_query:
+                tui.show_msg("error", "AILO failed to generate a query.")
+                tui.get_input("Press Enter to try again")
+                continue
+
+            # TUI dictates that we format query output safely
+            # Escaping brackets prevents Rich from interpreting SQL wildcards or characters as tags
+            safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
+            tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
+
+            success, result, cursor_description = db.execute_ai_read_query(sql_query)
+
+            if not success:
+                tui.show_msg("error", str(result))
+            else:
+                if not result:
+                    tui.show_msg("info", "Query returned 0 rows.")
+                else:
+                    # We have cursor_description, so we can get column names
+                    headers = [desc[0] for desc in cursor_description]
+                    str_rows = []
+
+                    # See if 'aqi_value' is one of the columns. If so, let's inject color and category.
+                    # Or check if this looks like a full 'records' query.
+                    has_aqi = 'aqi_value' in headers
+                    aqi_idx = headers.index('aqi_value') if has_aqi else -1
+
+                    if has_aqi:
+                        headers.extend(["Category", "Color"])
+
+                    for row in result:
+                        str_row = [str(item) for item in row]
+                        if has_aqi:
+                            try:
+                                aqi_val = float(str_row[aqi_idx])
+                                cat = get_epa_category_raw(aqi_val)
+                                color_hex = get_epa_color_hex(aqi_val)
+                                str_row.append(cat)
+                                str_row.append(f"[{color_hex}]███[/]")
+                            except ValueError:
+                                str_row.extend(["Unknown", ""])
+                        str_rows.append(str_row)
+
+                    tui.show_table("AILO Results", headers, str_rows, use_pager=True)
+
+            tui.get_input("Press Enter to continue")
+
+        except KeyboardInterrupt:
+            return
+
 def main_menu():
     while True:
         try:
@@ -237,7 +311,8 @@ def main_menu():
                 ("3", "Analytics & Reports"),
                 ("4", "Admin Menu"),
                 ("5", "Fetch Historical Data"),
-                ("6", "[red]Exit Program[/]")
+                ("6", "[magenta]Talk to AILO Database[/]"),
+                ("7", "[red]Exit Program[/]")
             ]
             tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
             choice = tui.get_input("Please choose an option from the menu")
@@ -253,6 +328,8 @@ def main_menu():
             elif choice == "5":
                 menu_5()
             elif choice == "6":
+                menu_6()
+            elif choice == "7":
                 exit_choice = tui.get_input("Do you want to Exit the program? (Y/N)", choices=["Y", "N", "y", "n"])
                 if exit_choice.upper() == "Y":
                     tui.show_msg("info", "You logged out!!")
