@@ -137,6 +137,52 @@ class DatabaseManager:
         result = cursor.fetchone()
         return result
 
+    def count_records(self, city_name=None, start_date=None, end_date=None, count_all=False) -> int:
+        cursor = self.conn.cursor()
+        if count_all:
+            cursor.execute("SELECT COUNT(*) FROM records")
+            return cursor.fetchone()[0]
+
+        query = "SELECT COUNT(*) FROM records WHERE 1=1"
+        params = []
+        if city_name:
+            query += " AND city_name = ?"
+            params.append(city_name)
+        if start_date:
+            query += " AND timestamp >= ?"
+            params.append(start_date + " 00:00")
+        if end_date:
+            query += " AND timestamp <= ?"
+            params.append(end_date + " 23:59")
+
+        cursor.execute(query, tuple(params))
+        return cursor.fetchone()[0]
+
+    def delete_records(self, city_name=None, start_date=None, end_date=None, delete_all=False) -> int:
+        cursor = self.conn.cursor()
+        if delete_all:
+            cursor.execute("DELETE FROM records")
+            rows_deleted = cursor.rowcount
+            self.conn.commit()
+            return rows_deleted
+
+        query = "DELETE FROM records WHERE 1=1"
+        params = []
+        if city_name:
+            query += " AND city_name = ?"
+            params.append(city_name)
+        if start_date:
+            query += " AND timestamp >= ?"
+            params.append(start_date + " 00:00")
+        if end_date:
+            query += " AND timestamp <= ?"
+            params.append(end_date + " 23:59")
+
+        cursor.execute(query, tuple(params))
+        rows_deleted = cursor.rowcount
+        self.conn.commit()
+        return rows_deleted
+
     def export_to_json(self) -> str:
         records = self.get_all_records()
         records_dict = [asdict(record) for record in records]
