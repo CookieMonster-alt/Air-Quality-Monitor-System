@@ -45,6 +45,7 @@ The database contains a table named 'records' with the following schema:
 - timestamp (TEXT)
 
 Generate a SELECT query based on the user's request.
+Note: City names are typically capitalized (e.g. 'London', not 'london'). Please apply COLLATE NOCASE or upper/lower functions if filtering by city_name to ensure case-insensitive matching.
 Return ONLY the raw SQL query.
 DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
 DO NOT provide any explanations.
