@@ -104,15 +104,11 @@ def show_table(title: str, columns: list, rows: list, use_pager: bool = False):
     for row in rows:
         table.add_row(*[str(item) for item in row])
 
-    footer = create_navigation_footer()
-    # Create a layout group that includes the footer at the top and bottom
-    render_group = Group(footer, Align.center(table), footer)
-
     if use_pager:
         with console.pager(styles=True):
-            console.print(render_group)
+            console.print(Align.center(table))
     else:
-        console.print(render_group)
+        console.print(Align.center(table))
     print()
 
 def print_footer():
@@ -122,12 +118,6 @@ def print_footer():
     footer_text = r"[muted]\[ENTER] Submit/Skip  |  \[CTRL+C] Cancel/Return[/]"
     console.print(footer_text, justify="center")
 
-def create_navigation_footer():
-    """
-    Returns a navigation footer for the table view.
-    """
-    footer_text = r"[accent]\[↑/↓][/] [info]Scroll Data[/]  |  [accent]\[q][/] [info]Quit Table & Return to Menu[/]  |  [accent]\[ENTER][/] [info]Select Option[/]"
-    return Panel(Align.center(footer_text), box=box.ROUNDED, border_style="muted", expand=True)
 
 def create_spinner(text: str):
     """
