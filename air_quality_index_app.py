@@ -269,46 +269,73 @@ def orchestrate_intent(initial_prompt: str):
             return
 
         elif intent == "query":
-            with tui.create_spinner("AILO is generating SQL...") as progress:
-                task_id = progress.add_task("AILO is generating SQL...", total=None)
-                sql_query = ai.translate_text_to_sql(current_prompt)
+            # HITL Self-Correction Loop
+            while True:
+                with tui.create_spinner("AILO is generating SQL...") as progress:
+                    task_id = progress.add_task("AILO is generating SQL...", total=None)
+                    sql_query = ai.translate_text_to_sql(current_prompt)
 
-            if not sql_query:
-                tui.show_msg("error", "AILO failed to generate a query.")
-                tui.get_input("Press Enter to return to menu")
-                return
+                if not sql_query:
+                    tui.show_msg("error", "AILO failed to generate a query.")
+                    tui.get_input("Press Enter to return to menu")
+                    return
 
-            safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
-            tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
+                safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
+                tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
 
-            success, result, cursor_description = db.execute_ai_read_query(sql_query)
-            if not success:
-                tui.show_msg("error", str(result))
-            else:
-                if not result:
-                    tui.show_msg("info", "Query returned 0 rows.")
+                success, result, cursor_description = db.execute_ai_read_query(sql_query)
+                if not success:
+                    error_msg = str(result)
+                    tui.show_msg("error", f"AI Error: SQL sorgusunda hata yaptım. Hata: {error_msg}. Nasıl düzeltmem gerektiğini söyler misin?")
+                    user_fix = tui.get_input("Your fix hint (or press Enter to cancel)")
+                    if not user_fix:
+                        return
+                    # Append error and user fix back to current_prompt to teach the model in the current context
+                    current_prompt = current_prompt + f" \nI generated this query: {sql_query}\nIt caused this error: {error_msg}\nHere is the fix instruction: {user_fix}"
+                    continue
                 else:
-                    headers = [desc[0] for desc in cursor_description]
-                    str_rows = []
-                    has_aqi = 'aqi_value' in headers
-                    aqi_idx = headers.index('aqi_value') if has_aqi else -1
-                    if has_aqi:
-                        headers.extend(["Category", "Color"])
-                    for row in result:
-                        str_row = [str(item) for item in row]
+                    # Successful query
+                    # If current_prompt was modified by a fix, let's learn it to ai_memory.json
+                    if "Here is the fix instruction" in current_prompt:
+                        import json
+                        memories = []
+                        try:
+                            with open("ai_memory.json", "r") as f:
+                                memories = json.load(f)
+                        except:
+                            pass
+                        memories.append({"query": initial_prompt, "sql": sql_query})
+                        try:
+                            with open("ai_memory.json", "w") as f:
+                                json.dump(memories, f, indent=4)
+                            tui.show_msg("success", "AILO learned a new successful query pattern!")
+                        except:
+                            pass
+
+                    if not result:
+                        tui.show_msg("info", "Query returned 0 rows.")
+                    else:
+                        headers = [desc[0] for desc in cursor_description]
+                        str_rows = []
+                        has_aqi = 'aqi_value' in headers
+                        aqi_idx = headers.index('aqi_value') if has_aqi else -1
                         if has_aqi:
-                            try:
-                                aqi_val = float(str_row[aqi_idx])
-                                cat = get_epa_category_raw(aqi_val)
-                                color_hex = get_epa_color_hex(aqi_val)
-                                str_row.append(cat)
-                                str_row.append(f"[{color_hex}]███[/]")
-                            except ValueError:
-                                str_row.extend(["Unknown", ""])
-                        str_rows.append(str_row)
-                    tui.show_table("AILO Results", headers, str_rows, use_pager=False)
-            tui.get_input("Press Enter to continue")
-            return
+                            headers.extend(["Category", "Color"])
+                        for row in result:
+                            str_row = [str(item) for item in row]
+                            if has_aqi:
+                                try:
+                                    aqi_val = float(str_row[aqi_idx])
+                                    cat = get_epa_category_raw(aqi_val)
+                                    color_hex = get_epa_color_hex(aqi_val)
+                                    str_row.append(cat)
+                                    str_row.append(f"[{color_hex}]███[/]")
+                                except ValueError:
+                                    str_row.extend(["Unknown", ""])
+                            str_rows.append(str_row)
+                        tui.show_table("AILO Results", headers, str_rows, use_pager=False)
+                tui.get_input("Press Enter to continue")
+                return
 
         elif intent == "insert":
             city = params.get("city")
