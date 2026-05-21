@@ -109,7 +109,7 @@ Rules:
 - "query": User wants to search, read, or analyze data. (e.g. "show me the highest AQI", "what is London's data")
 - "insert": User wants to add new data. (e.g. "add paris with aqi 45")
 - "delete": User wants to erase data. (e.g. "delete records for london")
-- "fetch_data": User wants to bulk import historical/online data (requires start_date, end_date, and url).
+- "fetch_data": User wants to fetch or download historical data. This ALWAYS requires 'url' (the file path to the CSV). If 'url', 'start_date', or 'end_date' are missing, you MUST set status to 'incomplete', specify the missing_slot, and ask for it in 'ask_user'.
 - "navigate": User wants to open a menu.
 - If an intent requires specific parameters that are missing, set "status": "incomplete", specify "missing_slot", and write a natural question in "ask_user" to prompt the user for it.
 - E.g. If insert is requested but aqi is missing, you DO NOT need to ask for aqi, because the system can fetch it autonomously. Just return city.

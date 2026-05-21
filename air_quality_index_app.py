@@ -383,6 +383,17 @@ def orchestrate_intent(initial_prompt: str):
             end_date = params.get("end_date")
             file_path = params.get("url")
 
+            # The AI might not ask effectively for URL since it's an abstract param
+            if not file_path:
+                tui.show_msg("warning", "File path missing.")
+                file_path = tui.get_input("Please enter the path to the CSV file:")
+                if not file_path:
+                    return
+            if not start_date:
+                start_date = tui.get_input("Please enter start date (YYYY-MM-DD):")
+            if not end_date:
+                end_date = tui.get_input("Please enter end date (YYYY-MM-DD):")
+
             if not start_date or not end_date or not file_path:
                 tui.show_msg("error", "Missing required parameters for CSV extraction.")
                 tui.get_input("Press Enter to continue...")
