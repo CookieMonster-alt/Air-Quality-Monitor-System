@@ -230,7 +230,8 @@ Menus:
 - menu_4: Contains administrative functions like deleting or backing up data.
 """
 
-def menu_6():
+
+def orchestrate_intent(initial_prompt: str):
     tui.clear_screen()
     tui.show_msg("info", "Initializing AILO (AI Local Operator)...")
 
@@ -239,50 +240,60 @@ def menu_6():
         ai = AIEngine()
         ai._ensure_model_loaded()
 
+    current_prompt = initial_prompt
+
     while True:
-        try:
-            tui.clear_screen()
-            tui.show_menu("TALK TO AILO (Text-to-SQL)", [])
-            tui.show_msg("info", "Ask me questions about your database! Examples:\n- 'How many records do we have?'\n- 'Get the top 5 cities with the highest AQI'")
+        with tui.create_spinner("AILO is parsing your intent...") as progress:
+            task_id = progress.add_task("AILO is parsing your intent...", total=None)
+            intent_data = ai.parse_intent(current_prompt)
 
-            prompt = tui.get_input("Your Question (or press Enter to exit)")
-            if not prompt:
+        status = intent_data.get("status")
+
+        if status == "incomplete":
+            ask_text = intent_data.get("ask_user", "Please provide more information.")
+            tui.show_msg("warning", ask_text)
+            user_reply = tui.get_input("Your response (or press Enter to cancel)")
+            if not user_reply:
                 return
+            # Append context
+            current_prompt = current_prompt + " " + user_reply
+            continue
 
-            with tui.create_spinner("AILO is thinking...") as progress:
-                task_id = progress.add_task("AILO is thinking...", total=None)
-                sql_query = ai.translate_text_to_sql(prompt)
+        # Status is complete
+        intent = intent_data.get("intent")
+        params = intent_data.get("parameters", {})
+
+        if intent == "navigate":
+            tui.show_msg("info", f"Navigating as requested...")
+            tui.get_input("Press Enter to continue")
+            return
+
+        elif intent == "query":
+            with tui.create_spinner("AILO is generating SQL...") as progress:
+                task_id = progress.add_task("AILO is generating SQL...", total=None)
+                sql_query = ai.translate_text_to_sql(current_prompt)
 
             if not sql_query:
                 tui.show_msg("error", "AILO failed to generate a query.")
-                tui.get_input("Press Enter to try again")
-                continue
+                tui.get_input("Press Enter to return to menu")
+                return
 
-            # TUI dictates that we format query output safely
-            # Escaping brackets prevents Rich from interpreting SQL wildcards or characters as tags
             safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
             tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
 
             success, result, cursor_description = db.execute_ai_read_query(sql_query)
-
             if not success:
                 tui.show_msg("error", str(result))
             else:
                 if not result:
                     tui.show_msg("info", "Query returned 0 rows.")
                 else:
-                    # We have cursor_description, so we can get column names
                     headers = [desc[0] for desc in cursor_description]
                     str_rows = []
-
-                    # See if 'aqi_value' is one of the columns. If so, let's inject color and category.
-                    # Or check if this looks like a full 'records' query.
                     has_aqi = 'aqi_value' in headers
                     aqi_idx = headers.index('aqi_value') if has_aqi else -1
-
                     if has_aqi:
                         headers.extend(["Category", "Color"])
-
                     for row in result:
                         str_row = [str(item) for item in row]
                         if has_aqi:
@@ -295,12 +306,120 @@ def menu_6():
                             except ValueError:
                                 str_row.extend(["Unknown", ""])
                         str_rows.append(str_row)
-
                     tui.show_table("AILO Results", headers, str_rows, use_pager=False)
-
             tui.get_input("Press Enter to continue")
+            return
 
-        except KeyboardInterrupt:
+        elif intent == "insert":
+            city = params.get("city")
+            if not city:
+                tui.show_msg("error", "Missing city name for insert operation.")
+                tui.get_input("Press Enter to continue")
+                return
+
+            city = city.title()
+            aqi = params.get("aqi")
+
+            if aqi is None:
+                tui.show_msg("info", f"AQI not provided for {city}. Fetching autonomously from WAQI...")
+                with tui.create_spinner(f"Fetching live AQI data for [cyan]{city}[/]...") as progress:
+                    task_id = progress.add_task(f"Fetching...", total=None)
+                    aqi = api_integration.get_station_aqi_by_name(city)
+
+                if aqi == 0.0:
+                    tui.show_msg("error", f"Could not find live anchor data for {city}.")
+                    tui.get_input("Press Enter to continue")
+                    return
+                tui.show_msg("info", f"Found live WAQI: [bold white]{aqi}[/] ({get_epa_category(aqi)})")
+
+            new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=time_stamp())
+            is_new = db.add_record(new_record)
+            if is_new:
+                tui.show_msg("success", f"AQI data for {city} saved successfully!")
+            else:
+                tui.show_msg("info", f"AQI data for {city} at this timestamp already exists.")
+            tui.get_input("Press Enter to continue")
+            return
+
+        elif intent == "delete":
+            city = params.get("city")
+            if city:
+                city = city.title()
+                records = db.get_records_by_city(city)
+                if not records:
+                    tui.show_msg("info", f"No records found for {city}.")
+                    tui.get_input("Press Enter to continue...")
+                    return
+                # Show Preview Table
+                tui.clear_screen()
+                from data_manager import get_epa_category_raw, get_epa_color_hex
+                rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
+                tui.show_table(f"Preview: {city} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
+
+                choice = tui.get_input("[info]Enter IDs to delete (e.g., 1, 4, 5)[/]\n[danger]Type 'ALL' to delete all listed records[/]\n[accent]Type 'C' to Cancel[/]\n> ")
+                if not choice or choice.strip().upper() == 'C':
+                    tui.show_msg("info", "Deletion cancelled.")
+                elif choice.strip().upper() == 'ALL':
+                    deleted = db.delete_records(city_name=city)
+                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                else:
+                    try:
+                        ids_to_delete = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
+                        if not ids_to_delete:
+                            raise ValueError()
+                        deleted = db.delete_records_by_ids(ids_to_delete)
+                        tui.show_msg("success", f"Successfully deleted {deleted} records.")
+                    except ValueError:
+                        tui.show_msg("error", "Invalid ID format. Operation cancelled.")
+            else:
+                # Without city, let's just abort to be safe, or redirect to menu_4
+                tui.show_msg("warning", "Granular delete via AILO requires a specific city. Redirecting to admin menu.")
+                menu_4()
+            tui.get_input("Press Enter to continue...")
+            return
+
+        elif intent == "fetch_data":
+            # ETL Historical CSV
+            start_date = params.get("start_date")
+            end_date = params.get("end_date")
+            file_path = params.get("url")
+
+            if not start_date or not end_date or not file_path:
+                tui.show_msg("error", "Missing required parameters for CSV extraction.")
+                tui.get_input("Press Enter to continue...")
+                return
+
+            if not os.path.exists(file_path) or not os.path.isfile(file_path):
+                tui.show_msg("error", "Invalid or missing local file path.")
+                tui.get_input("Press Enter to continue...")
+                return
+
+            try:
+                import datetime
+                datetime.datetime.strptime(start_date, "%Y-%m-%d")
+                datetime.datetime.strptime(end_date, "%Y-%m-%d")
+
+                with tui.create_spinner("Processing Devormous CSV Data...") as progress:
+                    task_id = progress.add_task("Processing Data...", total=None)
+                    stats = db.import_historical_csv_with_pandas(file_path, start_date, end_date)
+
+                from rich.panel import Panel
+                from tui_engine import console
+
+                report_text = f"[info]Total Rows Processed:[/] [bold white]{stats['total_processed']}[/]\n"
+                report_text += f"[info]New Records Inserted:[/] [success]{stats['newly_inserted']}[/]"
+                panel = Panel(report_text, title="[success]Import Complete[/]", border_style="success", expand=False)
+                console.print(panel, justify="center")
+            except ValueError as ve:
+                tui.show_msg("error", f"Date format error: {str(ve)}")
+            except Exception as e:
+                tui.show_msg("error", f"Import failed: {str(e)}")
+            tui.get_input("Press Enter to continue...")
+            return
+
+        else:
+            tui.show_msg("error", f"Unknown intent: {intent}")
+            tui.get_input("Press Enter to continue...")
             return
 
 def main_menu():
@@ -313,11 +432,10 @@ def main_menu():
                 ("3", "Analytics & Reports"),
                 ("4", "Admin Menu"),
                 ("5", "Fetch Historical Data"),
-                ("6", "[magenta]Talk to AILO Database[/]"),
-                ("7", "[red]Exit Program[/]")
+                ("6", "[red]Exit Program[/]")
             ]
             tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
-            choice = tui.get_input("Please choose an option from the menu")
+            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
 
             if choice == "1":
                 menu_1()
@@ -330,8 +448,6 @@ def main_menu():
             elif choice == "5":
                 menu_5()
             elif choice == "6":
-                menu_6()
-            elif choice == "7":
                 exit_choice = tui.get_input("Do you want to Exit the program? (Y/N)", choices=["Y", "N", "y", "n"])
                 if exit_choice.upper() == "Y":
                     tui.show_msg("info", "You logged out!!")
@@ -341,8 +457,8 @@ def main_menu():
             elif choice == "":
                 break
             else:
-                tui.show_msg("error", "Invalid choice. Please try again!!")
-                tui.get_input("Press Enter to continue...")
+                # Natural language omnibar flow
+                orchestrate_intent(choice)
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to main menu...")
             tui.get_input("Press Enter to continue")
@@ -570,7 +686,7 @@ def menu_3():
                 ("7", "[red]Return main menu[/]")
             ]
             tui.show_menu("ANALYTICS & REPORTS", options)
-            user_choice = tui.get_input("Please choose an option from the menu")
+            user_choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
 
             if user_choice == "":
                 return
@@ -671,7 +787,7 @@ def delete_data_menu():
                 ("4", "[red]Return Admin Menu[/]")
             ]
             tui.show_menu("DELETE DATA", options)
-            user_choice = tui.get_input("Please choose an option from the menu")
+            user_choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
 
             if user_choice == "" or user_choice == "4":
                 return
@@ -784,7 +900,7 @@ def menu_4():
                 ("5", "[red]Return main menu[/]")
             ]
             tui.show_menu("ADMIN MENU", options)
-            user_choice = tui.get_input("Please choose an option from the menu")
+            user_choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
 
             if user_choice == "":
                 return
@@ -878,7 +994,7 @@ def menu_5():
                 ("4", "[red]Return main menu[/]")
             ]
             tui.show_menu("FETCH HISTORICAL DATA", options)
-            user_choice = tui.get_input("Please choose an option from the menu")
+            user_choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
 
             if user_choice == "":
                 return
