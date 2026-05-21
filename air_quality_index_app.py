@@ -352,7 +352,6 @@ def orchestrate_intent(initial_prompt: str):
                     return
                 # Show Preview Table
                 tui.clear_screen()
-                from data_manager import get_epa_category_raw, get_epa_color_hex
                 rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
                 tui.show_table(f"Preview: {city} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
 
@@ -805,7 +804,6 @@ def delete_data_menu():
 
                 # Show Preview Table
                 tui.clear_screen()
-                from data_manager import get_epa_category_raw, get_epa_color_hex
                 rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
                 tui.show_table(f"Preview: {city_name} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
 
