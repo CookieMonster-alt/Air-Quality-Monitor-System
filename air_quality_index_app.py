@@ -640,11 +640,12 @@ def menu_7():
             error_msg = str(result)
             with tui.create_spinner("Student failed. Oracle intervening...") as progress:
                 task_id = progress.add_task("Oracle intervening...", total=None)
-                fixed_sql = ai.ai_oracle_fallback(q, sql, error_msg)
+                fixed_sql, explanation = ai.ai_oracle_fallback(q, sql, error_msg)
 
             if fixed_sql:
                 safe_fixed = fixed_sql.replace("[", "\\[").replace("]", "\\]")
                 console.print(f"[warning]Oracle Intervention: SQL Fixed[/warning] -> {safe_fixed}")
+                console.print(f"[info]Oracle Explanation:[/info] {explanation}")
                 o_success, o_result, _ = db.execute_ai_read_query(fixed_sql)
                 if o_success:
                     final_sql = fixed_sql
@@ -653,7 +654,7 @@ def menu_7():
                     console.print(f"[danger]Oracle also failed: {o_result}[/danger]")
             else:
                 passed = False
-                console.print(f"[danger]Oracle failed to intervene.[/danger]")
+                console.print(f"[danger]Oracle failed to intervene: {explanation}[/danger]")
         else:
             console.print("[success]Test Passed![/success]")
 
