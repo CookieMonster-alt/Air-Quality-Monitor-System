@@ -46,28 +46,27 @@ class AIEngine:
         except:
             manifest = "Manifest missing."
 
+        history_str = ""
         try:
             with open("ai_memory.json", "r") as f:
                 mem_data = json.load(f)
                 if mem_data:
-                    memory = "\nSuccessful Past Queries to Learn From:\n"
                     for m in mem_data[-5:]: # Last 5 memories
-                        memory += f"Q: {m['query']}\nSQL: {m['sql']}\n\n"
+                        history_str += f"<|im_start|>user\n{m['query']}<|im_end|>\n<|im_start|>assistant\n{m['sql']}<|im_end|>\n"
         except:
             pass
 
         system_prompt = f"""You are a strictly Read-Only SQLite code generator.
 System Identity and Rules:
 {manifest}
-{memory}
 Generate a SELECT query based on the user's request.
-CRITICAL: YOU MUST USE THE EXACT TABLE NAME AND COLUMNS DEFINED IN THE MANIFEST. THE TABLE IS records AND THE CITY COLUMN IS city_name. DO NOT INVENT TABLES LIKE cities.
+CRITICAL: YOU MUST USE THE EXACT TABLE NAME AND COLUMNS DEFINED IN THE MANIFEST. THE TABLE IS records AND THE CITY COLUMN IS city_name. THE AQI COLUMN IS aqi_value (NOT aqi). DO NOT INVENT TABLES LIKE cities.
 Return ONLY the raw SQL query.
 DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
 DO NOT provide any explanations.
 ONLY return the SQL statement."""
 
-        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n{history_str}<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
 
         try:
             response = self.llm(
@@ -85,8 +84,19 @@ ONLY return the SQL statement."""
                 sql_query = sql_query[3:]
             if sql_query.endswith("```"):
                 sql_query = sql_query[:-3]
+            
+            sql_query = sql_query.strip()
 
-            return sql_query.strip()
+            # SMART SOLUTION: Force SELECT * if the stubborn 0.5B model forgets the timestamp
+            import re
+            query_upper = sql_query.upper()
+            if sql_query.upper().startswith("SELECT") and " FROM " in query_upper:
+                if "*" not in sql_query and "TIMESTAMP" not in query_upper:
+                    # Only override if it's a simple query without aggregations
+                    if not any(agg in query_upper for agg in ["MAX(", "MIN(", "SUM(", "AVG(", "COUNT(", "GROUP BY"]):
+                        sql_query = re.sub(r'(?i)^SELECT\s+.*?\s+FROM', 'SELECT * FROM', sql_query)
+
+            return sql_query
         except Exception as e:
             print(f"Error generating SQL: {e}")
             return ""
@@ -122,6 +132,8 @@ Analyze the user's natural language input and output ONLY a valid JSON object ma
     "start_date": string | null,
     "end_date": string | null,
     "url": string | null,
+    "source": "api" | "csv" | null,
+    "delete_all": true | false,
     "menu_target": string | null
   }},
   "status": "complete" | "incomplete",
@@ -130,12 +142,12 @@ Analyze the user's natural language input and output ONLY a valid JSON object ma
 }}
 
 Rules:
-- "query": User wants to search, read, or analyze data. (e.g. "show me the highest AQI", "what is London's data")
-- "insert": User wants to add new data. (e.g. "add paris with aqi 45")
-- "delete": User wants to erase data. (e.g. "delete records for london")
-- "fetch_data": User wants to fetch or download historical data. This ALWAYS requires 'url' (the file path to the CSV). If 'url', 'start_date', or 'end_date' are missing, you MUST set status to 'incomplete', specify the missing_slot, and ask for it in 'ask_user'.
-- "navigate": User wants to open a menu.
-- If an intent requires specific parameters that are missing, set "status": "incomplete", specify "missing_slot", and write a natural question in "ask_user" to prompt the user for it.
+- "query": User wants to search, read, or analyze data. (e.g. "show me the highest AQI")
+- "insert": User wants to add new data. (e.g. "create a aqi for this city for today")
+- "delete": User wants to erase data. (e.g. "delete records for london yesterday" -> set date. "delete database" -> set delete_all to true)
+- "fetch_data": User wants to download historical/live data. If they ask to fetch/download from web/WAQI (e.g. "download last week aqi for amsterdam"), set `source` to "api", extract the city, and calculate the `start_date` and `end_date` based on today's date ({today}). If they ask to load a file, set `source` to "csv" and require a `url`.
+- Automatically convert relative time words ("yesterday", "last week") into actual dates (YYYY-MM-DD) based on today's date ({today}).
+- If an intent requires specific parameters that are missing, set "status": "incomplete", specify "missing_slot", and write a natural question in "ask_user".
 - E.g. If insert is requested but aqi is missing, you DO NOT need to ask for aqi, because the system can fetch it autonomously. Just return city.
 - DO NOT wrap the output in markdown. Output purely the JSON object.
 """
@@ -164,15 +176,19 @@ Rules:
             print(f"Error parsing intent: {e}")
             return {"intent": "unknown", "status": "incomplete", "ask_user": "I failed to parse your intent."}
 
-    def ai_oracle_fallback(self, user_prompt: str, bad_sql: str, sqlite_error: str) -> str:
+    def ai_oracle_fallback(self, user_prompt: str, bad_sql: str, sqlite_error: str) -> tuple[str, str]:
         import google.generativeai as genai
+        from dotenv import load_dotenv
+        import json
+        load_dotenv()
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
-            return ""
+            return "", "Gemini API key is missing."
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # Use gemini-2.5-flash as the fast oracle
+            model = genai.GenerativeModel('gemini-2.5-flash')
 
             prompt = f"""Şema:
 table: records
@@ -182,23 +198,29 @@ Kullanıcı Sorusu: {user_prompt}
 Yerel modelin ürettiği bozuk SQL: {bad_sql}
 SQLite Hatası: {sqlite_error}
 
-Sadece düzeltilmiş ve çalışacak doğru SQL kodunu döndür. Hiçbir açıklama yapma. Sadece SQL kodu olsun."""
+Bozuk SQL'i düzelt ve sebebini açıkla.
+Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
+{{
+  "fixed_sql": "DÜZELTİLMİŞ SQL BURAYA",
+  "explanation": "Hatayı nasıl düzelttiğini anlatan kısa açıklama"
+}}"""
 
             response = model.generate_content(prompt)
-            fixed_sql = response.text.strip()
+            output_text = response.text.strip()
 
-            # Cleanup markdown
-            if fixed_sql.startswith("```sql"):
-                fixed_sql = fixed_sql[6:]
-            if fixed_sql.startswith("```"):
-                fixed_sql = fixed_sql[3:]
-            if fixed_sql.endswith("```"):
-                fixed_sql = fixed_sql[:-3]
-
-            return fixed_sql.strip()
+            # Cleanup markdown if model hallucinates it
+            if output_text.startswith("```json"):
+                output_text = output_text[7:]
+            if output_text.startswith("```"):
+                output_text = output_text[3:]
+            if output_text.endswith("```"):
+                output_text = output_text[:-3]
+            
+            data = json.loads(output_text.strip())
+            return data.get("fixed_sql", "").strip(), data.get("explanation", "Gemini fixed the query autonomously.")
         except Exception as e:
             print(f"Oracle fallback error: {e}")
-            return ""
+            return "", f"Oracle fallback error: {str(e)}"
 
 
     def is_memory_duplicate(self, new_query: str, new_sql: str) -> bool:

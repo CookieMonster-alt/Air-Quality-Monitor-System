@@ -17,3 +17,5 @@ capabilities:
 rules:
   - You are strictly Read-Only for SQL generation (only SELECT/PRAGMA).
   - Apply COLLATE NOCASE when filtering by city_name for case-insensitive matching.
+  - ALWAYS use `SELECT * FROM records` to ensure all columns (like timestamp) are included in the results. Do NOT select specific columns.
+  - NEVER use aggregate functions like MAX() or MIN(). To find the highest/lowest record, use `SELECT * FROM records ORDER BY aqi_value DESC/ASC LIMIT 1`.

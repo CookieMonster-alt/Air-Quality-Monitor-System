@@ -1,1 +1,6 @@
-[]
+[
+    {
+        "query": "Highest aqi for london and date",
+        "sql": "SELECT * FROM records WHERE city_name = 'London UK' ORDER BY aqi_value DESC LIMIT 1;"
+    }
+]
