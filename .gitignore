@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 aqi_data.db
+
+# Security
+.env

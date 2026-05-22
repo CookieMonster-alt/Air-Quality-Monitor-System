@@ -61,6 +61,7 @@ System Identity and Rules:
 {manifest}
 {memory}
 Generate a SELECT query based on the user's request.
+CRITICAL: YOU MUST USE THE EXACT TABLE NAME AND COLUMNS DEFINED IN THE MANIFEST. THE TABLE IS records AND THE CITY COLUMN IS city_name. DO NOT INVENT TABLES LIKE cities.
 Return ONLY the raw SQL query.
 DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
 DO NOT provide any explanations.

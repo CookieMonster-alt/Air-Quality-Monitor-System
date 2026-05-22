@@ -306,7 +306,7 @@ def orchestrate_intent(initial_prompt: str):
                                     memories = json.load(f)
                             except:
                                 pass
-                            memories.append({"query": initial_prompt, "sql": fixed_sql})
+                            memories.append({"query": current_prompt, "sql": fixed_sql})
                             try:
                                 with open("ai_memory.json", "w") as f:
                                     json.dump(memories, f, indent=4)
@@ -443,7 +443,7 @@ def orchestrate_intent(initial_prompt: str):
                 tui.get_input("Press Enter to continue...")
                 return
 
-            if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            if not file_path.startswith("http") and not os.path.exists(file_path):
                 tui.show_msg("error", "Invalid or missing local file path.")
                 tui.get_input("Press Enter to continue...")
                 return
