@@ -1,6 +1,15 @@
 import os
 
 try:
+    from dotenv import load_dotenv
+    # Load .env file using its absolute path relative to this script's directory
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    dotenv_path = os.path.join(base_dir, '.env')
+    load_dotenv(dotenv_path)
+except ImportError:
+    pass
+
+try:
     from huggingface_hub import hf_hub_download
     from llama_cpp import Llama
     AI_AVAILABLE = True
@@ -178,9 +187,7 @@ Rules:
 
     def ai_oracle_fallback(self, user_prompt: str, bad_sql: str, sqlite_error: str) -> tuple[str, str]:
         import google.generativeai as genai
-        from dotenv import load_dotenv
         import json
-        load_dotenv()
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             return "", "Gemini API key is missing."
@@ -277,7 +284,7 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
 
             prompt = f"""{manifest}
 
