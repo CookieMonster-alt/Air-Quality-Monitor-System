@@ -37,15 +37,30 @@ class AIEngine:
         if not self.llm:
             return ""
 
-        system_prompt = """You are a strictly Read-Only SQLite code generator.
-The database contains a table named 'records' with the following schema:
-- id (INTEGER PRIMARY KEY)
-- city_name (TEXT)
-- aqi_value (REAL)
-- timestamp (TEXT)
+        import json
+        manifest = ""
+        memory = ""
+        try:
+            with open("ailo_manifest.yaml", "r") as f:
+                manifest = f.read()
+        except:
+            manifest = "Manifest missing."
 
+        try:
+            with open("ai_memory.json", "r") as f:
+                mem_data = json.load(f)
+                if mem_data:
+                    memory = "\nSuccessful Past Queries to Learn From:\n"
+                    for m in mem_data[-5:]: # Last 5 memories
+                        memory += f"Q: {m['query']}\nSQL: {m['sql']}\n\n"
+        except:
+            pass
+
+        system_prompt = f"""You are a strictly Read-Only SQLite code generator.
+System Identity and Rules:
+{manifest}
+{memory}
 Generate a SELECT query based on the user's request.
-Note: City names are typically capitalized (e.g. 'London', not 'london'). Please apply COLLATE NOCASE or upper/lower functions if filtering by city_name to ensure case-insensitive matching.
 Return ONLY the raw SQL query.
 DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
 DO NOT provide any explanations.
@@ -85,7 +100,15 @@ ONLY return the SQL statement."""
         import json
         today = datetime.date.today().isoformat()
 
-        system_prompt = f"""You are AILO, the Intent Router for an Air Quality Database System.
+        manifest = ""
+        try:
+            with open("ailo_manifest.yaml", "r") as f:
+                manifest = f.read()
+        except:
+            manifest = "Manifest missing."
+
+        system_prompt = f"""{manifest}
+You are AILO, the Intent Router for the System.
 Today's date is: {today}.
 
 Analyze the user's natural language input and output ONLY a valid JSON object matching this schema:
@@ -109,7 +132,7 @@ Rules:
 - "query": User wants to search, read, or analyze data. (e.g. "show me the highest AQI", "what is London's data")
 - "insert": User wants to add new data. (e.g. "add paris with aqi 45")
 - "delete": User wants to erase data. (e.g. "delete records for london")
-- "fetch_data": User wants to bulk import historical/online data (requires start_date, end_date, and url).
+- "fetch_data": User wants to fetch or download historical data. This ALWAYS requires 'url' (the file path to the CSV). If 'url', 'start_date', or 'end_date' are missing, you MUST set status to 'incomplete', specify the missing_slot, and ask for it in 'ask_user'.
 - "navigate": User wants to open a menu.
 - If an intent requires specific parameters that are missing, set "status": "incomplete", specify "missing_slot", and write a natural question in "ask_user" to prompt the user for it.
 - E.g. If insert is requested but aqi is missing, you DO NOT need to ask for aqi, because the system can fetch it autonomously. Just return city.
