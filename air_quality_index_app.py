@@ -476,7 +476,121 @@ def orchestrate_intent(initial_prompt: str):
             tui.get_input("Press Enter to continue...")
             return
 
+
+
+def menu_7():
+    import time
+    tui.clear_screen()
+    tui.show_msg("info", "Welcome to the Autonomous AI Training Room!")
+
+    options = [
+        ("1", "Time/Date Analytics"),
+        ("2", "Complex Aggregations"),
+        ("3", "Edge Cases/Typos"),
+        ("4", "Custom Simulation (User Defined)"),
+        ("5", "[red]Return to Menu[/]")
+    ]
+    tui.show_menu("SELECT TRAINING THEME", options)
+    choice = tui.get_input("Choose Theme (1-5)")
+
+    if choice == "5" or not choice:
+        return
+
+    topic = ""
+    if choice == "1":
+        topic = "Time/Date Analytics"
+    elif choice == "2":
+        topic = "Complex Aggregations"
+    elif choice == "3":
+        topic = "Edge Cases/Typos"
+    elif choice == "4":
+        topic = tui.get_input("Enter your custom topic (e.g. 'industrial zones')")
+        if not topic:
+            return
+    else:
+        return
+
+    count_str = tui.get_input("How many questions for this loop? (Max 10)")
+    if not count_str or not count_str.isdigit():
+        return
+    count = min(int(count_str), 10)
+
+    tui.clear_screen()
+    with tui.create_spinner("Booting AI Engines...") as progress:
+        task_id = progress.add_task("Booting AI Engines...", total=None)
+        ai = AIEngine()
+        ai._ensure_model_loaded()
+
+    tui.show_msg("info", f"Generating {count} questions for topic: {topic}...")
+
+    with tui.create_spinner("Oracle is creating syllabus...") as progress:
+        task_id = progress.add_task("Creating syllabus...", total=None)
+        questions = ai.generate_training_questions(topic, count)
+
+    if not questions:
+        tui.show_msg("error", "Oracle failed to generate questions. Check API key or connection.")
+        tui.get_input("Press Enter to return")
+        return
+
+    from tui_engine import console
+
+    tui.show_msg("success", "Training syllabus created. Starting autonomous loop...")
+    print("\n")
+
+    for idx, q in enumerate(questions, 1):
+        console.print(f"\n[bold magenta]--- Test {idx}/{len(questions)} ---[/]")
+        console.print(f"[info]Teacher (Gemini) asked:[/] {q}")
+
+        with tui.create_spinner("Student (Qwen) is coding...") as progress:
+            task_id = progress.add_task("Coding...", total=None)
+            sql = ai.translate_text_to_sql(q)
+
+        safe_sql = sql.replace("[", "\\[").replace("]", "\\]")
+        console.print(f"[cyan]Student (Qwen) SQL:[/] {safe_sql}")
+
+        success, result, cursor_description = db.execute_ai_read_query(sql)
+
+        final_sql = sql
+        passed = True
+
+        if not success:
+            error_msg = str(result)
+            with tui.create_spinner("Student failed. Oracle intervening...") as progress:
+                task_id = progress.add_task("Oracle intervening...", total=None)
+                fixed_sql = ai.ai_oracle_fallback(q, sql, error_msg)
+
+            if fixed_sql:
+                safe_fixed = fixed_sql.replace("[", "\\[").replace("]", "\\]")
+                console.print(f"[warning]Oracle Intervention: SQL Fixed[/warning] -> {safe_fixed}")
+                o_success, o_result, _ = db.execute_ai_read_query(fixed_sql)
+                if o_success:
+                    final_sql = fixed_sql
+                else:
+                    passed = False
+                    console.print(f"[danger]Oracle also failed: {o_result}[/danger]")
+            else:
+                passed = False
+                console.print(f"[danger]Oracle failed to intervene.[/danger]")
+        else:
+            console.print("[success]Test Passed![/success]")
+
+        if passed and final_sql:
+            saved = ai.save_to_memory(q, final_sql)
+            if saved:
+                console.print("[success]Memory Updated: New pattern learned![/success]")
+            else:
+                console.print("[muted]Memory Skipped: Duplicate or redundant pattern.[/muted]")
+
+        if idx < len(questions):
+            with tui.create_spinner("Cooling down API for 4 seconds...") as progress:
+                task_id = progress.add_task("Cooling down...", total=None)
+                console.print("[muted]Cooling down API for 4 seconds...[/muted]")
+                time.sleep(4)
+
+    tui.get_input("\n[bold white]Training Complete. Press Enter to return to menu.[/bold white]")
+
 def main_menu():
+
     while True:
         try:
             tui.clear_screen()
@@ -486,10 +600,11 @@ def main_menu():
                 ("3", "Analytics & Reports"),
                 ("4", "Admin Menu"),
                 ("5", "Fetch Historical Data"),
-                ("6", "[red]Exit Program[/]")
+                ("6", "Autonomous AI Training Room"),
+                ("7", "[red]Exit Program[/]")
             ]
             tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
-            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
+            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-7 OR type naturally):[/brand]")
 
             if choice == "1":
                 menu_1()
@@ -502,6 +617,8 @@ def main_menu():
             elif choice == "5":
                 menu_5()
             elif choice == "6":
+                menu_7()
+            elif choice == "7":
                 exit_choice = tui.get_input("Do you want to Exit the program? (Y/N)", choices=["Y", "N", "y", "n"])
                 if exit_choice.upper() == "Y":
                     tui.show_msg("info", "You logged out!!")
