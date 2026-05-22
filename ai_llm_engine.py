@@ -162,3 +162,39 @@ Rules:
         except Exception as e:
             print(f"Error parsing intent: {e}")
             return {"intent": "unknown", "status": "incomplete", "ask_user": "I failed to parse your intent."}
+
+    def ai_oracle_fallback(self, user_prompt: str, bad_sql: str, sqlite_error: str) -> str:
+        import google.generativeai as genai
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return ""
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
+            prompt = f"""Şema:
+table: records
+columns: id (INTEGER PRIMARY KEY), city_name (TEXT), aqi_value (REAL), timestamp (TEXT)
+
+Kullanıcı Sorusu: {user_prompt}
+Yerel modelin ürettiği bozuk SQL: {bad_sql}
+SQLite Hatası: {sqlite_error}
+
+Sadece düzeltilmiş ve çalışacak doğru SQL kodunu döndür. Hiçbir açıklama yapma. Sadece SQL kodu olsun."""
+
+            response = model.generate_content(prompt)
+            fixed_sql = response.text.strip()
+
+            # Cleanup markdown
+            if fixed_sql.startswith("```sql"):
+                fixed_sql = fixed_sql[6:]
+            if fixed_sql.startswith("```"):
+                fixed_sql = fixed_sql[3:]
+            if fixed_sql.endswith("```"):
+                fixed_sql = fixed_sql[:-3]
+
+            return fixed_sql.strip()
+        except Exception as e:
+            print(f"Oracle fallback error: {e}")
+            return ""

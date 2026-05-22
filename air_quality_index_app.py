@@ -286,31 +286,48 @@ def orchestrate_intent(initial_prompt: str):
                 success, result, cursor_description = db.execute_ai_read_query(sql_query)
                 if not success:
                     error_msg = str(result)
-                    tui.show_msg("error", f"AI Error: SQL sorgusunda hata yaptım. Hata: {error_msg}. Nasıl düzeltmem gerektiğini söyler misin?")
-                    user_fix = tui.get_input("Your fix hint (or press Enter to cancel)")
-                    if not user_fix:
+                    with tui.create_spinner("Local AI failed. Reaching out to Cloud Oracle...") as progress:
+                        task_id = progress.add_task("Cloud Oracle analyzing...", total=None)
+                        fixed_sql = ai.ai_oracle_fallback(initial_prompt, sql_query, error_msg)
+
+                    if fixed_sql:
+                        safe_sql = fixed_sql.replace("[", "\\[").replace("]", "\\]")
+                        tui.show_msg("warning", f"Oracle Fixed SQL: [bold white]{safe_sql}[/]")
+                        o_success, o_result, o_cursor_description = db.execute_ai_read_query(fixed_sql)
+
+                        if o_success:
+                            tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
+
+                            # Learn it to ai_memory.json
+                            import json
+                            memories = []
+                            try:
+                                with open("ai_memory.json", "r") as f:
+                                    memories = json.load(f)
+                            except:
+                                pass
+                            memories.append({"query": initial_prompt, "sql": fixed_sql})
+                            try:
+                                with open("ai_memory.json", "w") as f:
+                                    json.dump(memories, f, indent=4)
+                            except:
+                                pass
+
+                            sql_query = fixed_sql
+                            success = o_success
+                            result = o_result
+                            cursor_description = o_cursor_description
+                        else:
+                            tui.show_msg("error", f"Cloud Oracle also failed: {o_result}")
+                            tui.get_input("Press Enter to return")
+                            return
+                    else:
+                        tui.show_msg("error", f"AI Error: {error_msg}")
+                        tui.get_input("Press Enter to return")
                         return
-                    # Append error and user fix back to current_prompt to teach the model in the current context
-                    current_prompt = current_prompt + f" \nI generated this query: {sql_query}\nIt caused this error: {error_msg}\nHere is the fix instruction: {user_fix}"
-                    continue
-                else:
+
+                if success:
                     # Successful query
-                    # If current_prompt was modified by a fix, let's learn it to ai_memory.json
-                    if "Here is the fix instruction" in current_prompt:
-                        import json
-                        memories = []
-                        try:
-                            with open("ai_memory.json", "r") as f:
-                                memories = json.load(f)
-                        except:
-                            pass
-                        memories.append({"query": initial_prompt, "sql": sql_query})
-                        try:
-                            with open("ai_memory.json", "w") as f:
-                                json.dump(memories, f, indent=4)
-                            tui.show_msg("success", "AILO learned a new successful query pattern!")
-                        except:
-                            pass
 
                     if not result:
                         tui.show_msg("info", "Query returned 0 rows.")
