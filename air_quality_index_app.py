@@ -73,6 +73,7 @@ Available at: https://sentry.io/answers/print-colored-text-to-terminal-with-pyth
 
 import json
 import datetime
+import random
 import os, shutil
 import tui_engine as tui
 from data_manager import DatabaseManager, CityRecord, get_epa_category, get_epa_color_tag, get_epa_color_hex, get_epa_category_raw
@@ -393,12 +394,19 @@ def orchestrate_intent(initial_prompt: str):
                     return
                 tui.show_msg("info", f"Found live WAQI: [bold white]{aqi}[/] ({get_epa_category(aqi)})")
 
-            new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=time_stamp())
+            date_val = params.get("date")
+            if date_val:
+                current_time = datetime.datetime.now().strftime("%H:%M")
+                ts = f"{date_val} {current_time}"
+            else:
+                ts = time_stamp()
+
+            new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=ts)
             is_new = db.add_record(new_record)
             if is_new:
-                tui.show_msg("success", f"AQI data for {city} saved successfully!")
+                tui.show_msg("success", f"AQI data for {city} ({ts}) saved successfully!")
             else:
-                tui.show_msg("info", f"AQI data for {city} at this timestamp already exists.")
+                tui.show_msg("info", f"AQI data for {city} at this timestamp ({ts}) already exists.")
             tui.get_input("Press Enter to continue")
             return
 
@@ -468,6 +476,12 @@ def orchestrate_intent(initial_prompt: str):
             start_date = params.get("start_date")
             end_date = params.get("end_date")
 
+            if not source:
+                if city and not params.get("url"):
+                    source = "api"
+                else:
+                    source = "csv"
+
             if source == "api":
                 if not city:
                     tui.show_msg("error", "A specific city is required to fetch API data.")
@@ -482,10 +496,6 @@ def orchestrate_intent(initial_prompt: str):
                 if live_aqi == 0.0:
                     tui.show_msg("error", f"Could not fetch API data for {city}. Station not found.")
                 else:
-                    import datetime
-                    import random
-                    from data_manager import CityRecord
-                    
                     if start_date and end_date:
                         # Generate mock history anchored to live value
                         sd = datetime.datetime.strptime(start_date, "%Y-%m-%d")
@@ -532,7 +542,6 @@ def orchestrate_intent(initial_prompt: str):
                     return
 
                 try:
-                    import datetime
                     datetime.datetime.strptime(start_date, "%Y-%m-%d")
                     datetime.datetime.strptime(end_date, "%Y-%m-%d")
 

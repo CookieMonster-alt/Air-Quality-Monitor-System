@@ -249,11 +249,11 @@ class DatabaseManager:
             # Using basic tokenization for safety
             tokens = [t.strip() for t in query_upper.replace('(', ' ').replace(')', ' ').replace(';', ' ').split()]
             if keyword in tokens:
-                return False, f"SECURITY ALERT: Destructive command '{keyword}' detected and blocked."
+                return False, f"SECURITY ALERT: Destructive command '{keyword}' detected and blocked.", None
 
         # Additionally, enforce that the query MUST start with SELECT or PRAGMA
         if not (query_upper.startswith("SELECT") or query_upper.startswith("PRAGMA")):
-            return False, "SECURITY ALERT: Only SELECT or PRAGMA queries are allowed."
+            return False, "SECURITY ALERT: Only SELECT or PRAGMA queries are allowed.", None
 
         try:
             cursor = self.conn.cursor()
