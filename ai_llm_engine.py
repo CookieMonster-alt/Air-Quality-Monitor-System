@@ -1,9 +1,11 @@
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 try:
     from dotenv import load_dotenv
     # Load .env file using its absolute path relative to this script's directory
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = BASE_DIR
     dotenv_path = os.path.join(base_dir, '.env')
     load_dotenv(dotenv_path)
 except ImportError:
@@ -50,14 +52,14 @@ class AIEngine:
         manifest = ""
         memory = ""
         try:
-            with open("ailo_manifest.yaml", "r") as f:
+            with open(os.path.join(BASE_DIR, "ailo_manifest.yaml"), "r") as f:
                 manifest = f.read()
         except:
             manifest = "Manifest missing."
 
         history_str = ""
         try:
-            with open("ai_memory.json", "r") as f:
+            with open(os.path.join(BASE_DIR, "ai_memory.json"), "r") as f:
                 mem_data = json.load(f)
                 if mem_data:
                     for m in mem_data[-5:]: # Last 5 memories
@@ -122,7 +124,7 @@ ONLY return the SQL statement."""
 
         manifest = ""
         try:
-            with open("ailo_manifest.yaml", "r") as f:
+            with open(os.path.join(BASE_DIR, "ailo_manifest.yaml"), "r") as f:
                 manifest = f.read()
         except:
             manifest = "Manifest missing."
@@ -234,7 +236,7 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
         import json
         import difflib
         try:
-            with open("ai_memory.json", "r") as f:
+            with open(os.path.join(BASE_DIR, "ai_memory.json"), "r") as f:
                 mem_data = json.load(f)
 
             for m in mem_data:
@@ -255,14 +257,14 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
 
         memories = []
         try:
-            with open("ai_memory.json", "r") as f:
+            with open(os.path.join(BASE_DIR, "ai_memory.json"), "r") as f:
                 memories = json.load(f)
         except:
             pass
 
         memories.append({"query": new_query, "sql": new_sql})
         try:
-            with open("ai_memory.json", "w") as f:
+            with open(os.path.join(BASE_DIR, "ai_memory.json"), "w") as f:
                 json.dump(memories, f, indent=4)
             return True
         except:
@@ -277,7 +279,7 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
 
         manifest = ""
         try:
-            with open("ailo_manifest.yaml", "r") as f:
+            with open(os.path.join(BASE_DIR, "ailo_manifest.yaml"), "r") as f:
                 manifest = f.read()
         except:
             manifest = "Manifest missing."
