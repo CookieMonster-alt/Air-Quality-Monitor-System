@@ -234,6 +234,7 @@ Menus:
 
 def orchestrate_intent(initial_prompt: str):
     tui.clear_screen()
+    tui.show_msg("info", f"User Input: [bold white]{initial_prompt}[/]")
     tui.show_msg("info", "Initializing AILO (AI Local Operator)...")
 
     with tui.create_spinner("Loading Qwen2.5-Coder Model (this may take a while)...") as progress:
@@ -247,6 +248,27 @@ def orchestrate_intent(initial_prompt: str):
         with tui.create_spinner("AILO is parsing your intent...") as progress:
             task_id = progress.add_task("AILO is parsing your intent...", total=None)
             intent_data = ai.parse_intent(current_prompt)
+
+        if intent_data.get("intent") == "unknown" and "failed" in intent_data.get("ask_user", ""):
+            with tui.create_spinner("Local AI failed. Reaching out to Cloud Oracle...") as progress:
+                task_id = progress.add_task("Cloud Oracle analyzing intent...", total=None)
+                fixed_intent_data, explanation = ai.ai_oracle_intent_fallback(current_prompt)
+
+            if fixed_intent_data and fixed_intent_data.get("intent") != "unknown":
+                tui.show_msg("info", f"Oracle Explanation: {explanation}")
+                tui.show_msg("warning", f"Oracle Fixed Intent: [bold white]{fixed_intent_data.get('intent')}[/]")
+                tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
+                
+                # Save to intent memory so local AI learns it for next time
+                if ai.save_intent_memory(current_prompt, fixed_intent_data):
+                    from tui_engine import console
+                    console.print("[success]Intent Memory Updated: Local model learned a new behavior![/success]")
+                
+                intent_data = fixed_intent_data
+            else:
+                tui.show_msg("error", f"Cloud Oracle also failed: {explanation}")
+                tui.get_input("Press Enter to return")
+                return
 
         status = intent_data.get("status")
 
@@ -297,6 +319,11 @@ def orchestrate_intent(initial_prompt: str):
 
                 safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
                 tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
+
+                with tui.create_spinner("Generating explanation...") as progress:
+                    task_id = progress.add_task("Generating explanation...", total=None)
+                    explanation = ai.explain_sql(sql_query)
+                tui.show_msg("info", f"Explanation: {explanation}")
 
                 success, result, cursor_description = db.execute_ai_read_query(sql_query)
                 if not success:
@@ -697,7 +724,7 @@ def main_menu():
                 ("7", "[red]Exit Program[/]")
             ]
             tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
-            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-7 OR type naturally):[/brand]")
+            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-7 OR type naturally) [/brand]")
 
             if choice == "1":
                 menu_1()

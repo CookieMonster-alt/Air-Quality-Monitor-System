@@ -90,5 +90,17 @@
     {
         "query": "What are the air quality measurements for both Berlin and Rome?",
         "sql": "SELECT * FROM records WHERE city_name IN ('Berlin', 'Rome')"
+    },
+    {
+        "query": "Show all air quality records where the AQI value is considered unhealthy, specifically above 150.",
+        "sql": "SELECT * FROM records WHERE aqi_value > 150"
+    },
+    {
+        "query": "Retrieve the record showing the highest AQI recorded specifically for Paris.",
+        "sql": "SELECT * FROM records WHERE city_name = 'Paris' ORDER BY aqi_value DESC LIMIT 1"
+    },
+    {
+        "query": "List any record where the AQI value falls below 20, indicating exceptionally good air quality.",
+        "sql": "SELECT * FROM records WHERE aqi_value < 20"
     }
 ]

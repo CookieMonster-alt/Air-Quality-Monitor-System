@@ -133,6 +133,27 @@ Rules:
             print(f"Error generating SQL: {e}")
             return ""
 
+    def explain_sql(self, sql_query: str) -> str:
+        self._ensure_model_loaded()
+        if not self.llm:
+            return "AI engine offline."
+            
+        system_prompt = "You are a helpful data assistant. Explain the following SQL query in one short, simple natural language sentence so a non-technical user can understand it."
+        user_prompt = f"Explain this SQL query:\n{sql_query}"
+        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        
+        try:
+            response = self.llm(
+                prompt,
+                max_tokens=80,
+                stop=["<|im_end|>"],
+                temperature=0.3
+            )
+            explanation = response['choices'][0]['text'].strip()
+            return explanation
+        except Exception as e:
+            return "Could not generate explanation."
+
 
     def parse_intent(self, user_prompt: str) -> dict:
         self._ensure_model_loaded()
@@ -152,6 +173,15 @@ Rules:
                 manifest = f.read()
         except:
             manifest = "Manifest missing."
+
+        intent_memories_str = ""
+        try:
+            with open(os.path.join(BASE_DIR, "ai_intent_memory.json"), "r") as f:
+                memories = json.load(f)
+                for mem in memories[-5:]:
+                    intent_memories_str += f"\nUser: \"{mem['query']}\"\nResult:\n{json.dumps(mem['json'], indent=2)}\n"
+        except:
+            pass
 
         system_prompt = f"""{manifest}
 You are AILO, the Intent Router for the System.
@@ -177,12 +207,32 @@ Analyze the user's natural language input and output ONLY a valid JSON object ma
 }}
 
 Guidelines:
-- "query": Reading, viewing, or searching existing database records (e.g. "what is...", "show...", "get..."). DO NOT extract dates or sources. Only extract "city" if specified. All other parameter fields MUST be null or false.
+- "query": Reading, viewing, calculating, or searching existing database records (e.g. "what is...", "show...", "get...", "mean", "average"). DO NOT extract dates or sources for query. Only extract "city" if specified. All other parameter fields MUST be null or false.
 - "insert": Manually adding/entering a new record, city, and its AQI value to the database. The input will typically contain words like "enter", "insert", "add", "record", "save" along with a city and/or AQI value. You must extract the "city", "aqi" (as a float), and "date" (resolved relative to {today} if yesterday/today/etc. is mentioned).
-- "fetch_data": Downloading new/external bulk data from an API or CSV file.
+- "fetch_data": Downloading new/external bulk data from an API or CSV file. DO NOT use this for answering questions like "what is" or "show".
 - Automatically calculate start_date and end_date based on today's date ({today}) when translating relative times like "last week" (7 days ago to today) ONLY for fetch_data and delete.
 
 Examples:
+
+User: "What is mean value for last week?"
+Result:
+{{
+  "intent": "query",
+  "parameters": {{
+    "city": null,
+    "aqi": null,
+    "date": null,
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
 
 User: "What is last week london aqi data"
 Result:
@@ -323,6 +373,7 @@ Result:
   "missing_slot": null,
   "ask_user": null
 }}
+{intent_memories_str}
 """
 
         prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
@@ -465,3 +516,69 @@ Return a valid JSON array of strings containing the questions. Example: ["questi
         except Exception as e:
             print(f"Error generating questions: {e}")
             return []
+
+    def ai_oracle_intent_fallback(self, user_prompt: str) -> tuple[dict, str]:
+        import google.generativeai as genai
+        import json
+        import datetime
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return {"intent": "unknown", "status": "incomplete", "ask_user": "Gemini API key missing."}, "Gemini API key missing."
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            
+            today = datetime.date.today().isoformat()
+            
+            prompt = f"""You are the Cloud Oracle for Intent Parsing. The local model failed to parse this user prompt:
+"{user_prompt}"
+
+Return a valid JSON object matching the required schema and an explanation string.
+Return EXACTLY this JSON structure, nothing else:
+{{
+  "json_output": {{
+    "intent": "query" | "insert" | "delete" | "fetch_data" | "navigate",
+    "parameters": {{ ... }},
+    "status": "complete",
+    "missing_slot": null,
+    "ask_user": null
+  }},
+  "explanation": "Why the local model might have failed and how you resolved it."
+}}
+Today's date is {today}.
+"""
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            if text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            
+            data = json.loads(text.strip())
+            return data.get("json_output", {}), data.get("explanation", "Parsed via Gemini.")
+        except Exception as e:
+            return {"intent": "unknown", "status": "incomplete", "ask_user": f"Oracle error: {e}"}, str(e)
+
+    def save_intent_memory(self, user_prompt: str, intent_json: dict) -> bool:
+        import json
+        memory_file = os.path.join(BASE_DIR, "ai_intent_memory.json")
+        memories = []
+        try:
+            with open(memory_file, "r") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, list): memories = loaded
+        except:
+            pass
+            
+        for m in memories:
+            if m.get("query") == user_prompt:
+                return False
+                
+        memories.append({"query": user_prompt, "json": intent_json})
+        
+        try:
+            with open(memory_file, "w") as f:
+                json.dump(memories, f, indent=4)
+            return True
+        except:
+            return False
