@@ -108,6 +108,10 @@ BOLD = "\033[1m"
 UNDERLINE = "\033[4m"
 BRIGHT_WHITE = "\033[1m\033[97m"
 
+
+# ------------------ Shared Blackboard ------------------|
+shared_blackboard = {'last_data': None}
+
 # ------------------ Data Functions ------------------|
 # This is the data functions block. It includes functions for data entry,
 # updating, finding, and deleting. It is used for data manipulation.
@@ -231,14 +235,12 @@ Menus:
 """
 
 
-def orchestrate_intent(initial_prompt: str):
-    tui.clear_screen()
-    tui.show_msg("info", "Initializing AILO (AI Local Operator)...")
-
-    with tui.create_spinner("Loading Qwen2.5-Coder Model (this may take a while)...") as progress:
-        task_id = progress.add_task("Loading Qwen2.5-Coder Model (this may take a while)...", total=None)
+def orchestrate_intent(initial_prompt: str, ai_instance=None):
+    if ai_instance is None:
         ai = AIEngine()
         ai._ensure_model_loaded()
+    else:
+        ai = ai_instance
 
     current_prompt = initial_prompt
 
@@ -265,7 +267,7 @@ def orchestrate_intent(initial_prompt: str):
 
         if intent == "navigate":
             tui.show_msg("info", f"Navigating as requested...")
-            tui.get_input("Press Enter to continue")
+
             return
 
         elif intent == "query":
@@ -277,7 +279,7 @@ def orchestrate_intent(initial_prompt: str):
 
                 if not sql_query:
                     tui.show_msg("error", "AILO failed to generate a query.")
-                    tui.get_input("Press Enter to return to menu")
+
                     return
 
                 safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
@@ -298,20 +300,8 @@ def orchestrate_intent(initial_prompt: str):
                         if o_success:
                             tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
 
-                            # Learn it to ai_memory.json
-                            import json
-                            memories = []
-                            try:
-                                with open("ai_memory.json", "r") as f:
-                                    memories = json.load(f)
-                            except:
-                                pass
-                            memories.append({"query": current_prompt, "sql": fixed_sql})
-                            try:
-                                with open("ai_memory.json", "w") as f:
-                                    json.dump(memories, f, indent=4)
-                            except:
-                                pass
+                            # Learn it to isolated memory
+                            ai.save_to_memory(current_prompt, fixed_sql, persona="router")
 
                             sql_query = fixed_sql
                             success = o_success
@@ -319,11 +309,11 @@ def orchestrate_intent(initial_prompt: str):
                             cursor_description = o_cursor_description
                         else:
                             tui.show_msg("error", f"Cloud Oracle also failed: {o_result}")
-                            tui.get_input("Press Enter to return")
+
                             return
                     else:
                         tui.show_msg("error", f"AI Error: {error_msg}")
-                        tui.get_input("Press Enter to return")
+
                         return
 
                 if success:
@@ -351,14 +341,22 @@ def orchestrate_intent(initial_prompt: str):
                                     str_row.extend(["Unknown", ""])
                             str_rows.append(str_row)
                         tui.show_table("AILO Results", headers, str_rows, use_pager=False)
-                tui.get_input("Press Enter to continue")
+                    # Write to Shared Blackboard for Analyst
+                    import pandas as pd
+                    try:
+                        clean_headers = headers[:len(result[0])]
+                        df = pd.DataFrame(result, columns=clean_headers)
+                        shared_blackboard['last_data'] = df
+                    except Exception as e:
+                        pass
+
                 return
 
         elif intent == "insert":
             city = params.get("city")
             if not city:
                 tui.show_msg("error", "Missing city name for insert operation.")
-                tui.get_input("Press Enter to continue")
+
                 return
 
             city = city.title()
@@ -372,7 +370,7 @@ def orchestrate_intent(initial_prompt: str):
 
                 if aqi == 0.0:
                     tui.show_msg("error", f"Could not find live anchor data for {city}.")
-                    tui.get_input("Press Enter to continue")
+
                     return
                 tui.show_msg("info", f"Found live WAQI: [bold white]{aqi}[/] ({get_epa_category(aqi)})")
 
@@ -382,7 +380,7 @@ def orchestrate_intent(initial_prompt: str):
                 tui.show_msg("success", f"AQI data for {city} saved successfully!")
             else:
                 tui.show_msg("info", f"AQI data for {city} at this timestamp already exists.")
-            tui.get_input("Press Enter to continue")
+
             return
 
         elif intent == "delete":
@@ -392,7 +390,7 @@ def orchestrate_intent(initial_prompt: str):
                 records = db.get_records_by_city(city)
                 if not records:
                     tui.show_msg("info", f"No records found for {city}.")
-                    tui.get_input("Press Enter to continue...")
+
                     return
                 # Show Preview Table
                 tui.clear_screen()
@@ -417,8 +415,8 @@ def orchestrate_intent(initial_prompt: str):
             else:
                 # Without city, let's just abort to be safe, or redirect to menu_4
                 tui.show_msg("warning", "Granular delete via AILO requires a specific city. Redirecting to admin menu.")
-                menu_4()
-            tui.get_input("Press Enter to continue...")
+                tui.show_msg("info", "Use /backup, /export, or natural language to manage admin commands.")
+
             return
 
         elif intent == "fetch_data":
@@ -440,12 +438,12 @@ def orchestrate_intent(initial_prompt: str):
 
             if not start_date or not end_date or not file_path:
                 tui.show_msg("error", "Missing required parameters for CSV extraction.")
-                tui.get_input("Press Enter to continue...")
+
                 return
 
             if not file_path.startswith("http") and not os.path.exists(file_path):
                 tui.show_msg("error", "Invalid or missing local file path.")
-                tui.get_input("Press Enter to continue...")
+
                 return
 
             try:
@@ -468,12 +466,12 @@ def orchestrate_intent(initial_prompt: str):
                 tui.show_msg("error", f"Date format error: {str(ve)}")
             except Exception as e:
                 tui.show_msg("error", f"Import failed: {str(e)}")
-            tui.get_input("Press Enter to continue...")
+
             return
 
         else:
             tui.show_msg("error", f"Unknown intent: {intent}")
-            tui.get_input("Press Enter to continue...")
+
             return
 
 
@@ -529,7 +527,7 @@ def menu_7():
 
     if not questions:
         tui.show_msg("error", "Oracle failed to generate questions. Check API key or connection.")
-        tui.get_input("Press Enter to return")
+
         return
 
     from tui_engine import console
@@ -613,7 +611,7 @@ def main_menu():
             elif choice == "3":
                 menu_3()
             elif choice == "4":
-                menu_4()
+                tui.show_msg("info", "Use /backup, /export, or natural language to manage admin commands.")
             elif choice == "5":
                 menu_5()
             elif choice == "6":
@@ -632,7 +630,7 @@ def main_menu():
                 orchestrate_intent(choice)
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to main menu...")
-            tui.get_input("Press Enter to continue")
+
             continue
             
 
@@ -721,7 +719,7 @@ def menu_1():
 
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to menu...")
-            tui.get_input("Press Enter to continue")
+
             return
 
 
@@ -833,7 +831,7 @@ def menu_2():
             return
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to menu...")
-            tui.get_input("Press Enter to continue")
+
             return
 
 
@@ -933,11 +931,11 @@ def menu_3():
                 break
             else:
                 tui.show_msg("error", "Invalid choice. Please try again!!")
-                tui.get_input("Press Enter to continue...")
+
                 continue
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to menu...")
-            tui.get_input("Press Enter to continue")
+
             return
 
 
@@ -971,7 +969,7 @@ def delete_data_menu():
                 records = db.get_records_by_city(city_name)
                 if not records:
                     tui.show_msg("info", f"No records found for {city_name}.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
 
                 # Show Preview Table
@@ -983,12 +981,12 @@ def delete_data_menu():
 
                 if not choice or choice.strip().upper() == 'C':
                     tui.show_msg("info", "Deletion cancelled.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
                 elif choice.strip().upper() == 'ALL':
                     deleted = db.delete_records(city_name=city_name)
                     tui.show_msg("success", f"Successfully deleted {deleted} records.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
                 else:
                     # Granular Deletion
@@ -1002,7 +1000,7 @@ def delete_data_menu():
                     except ValueError:
                         tui.show_msg("error", "Invalid ID format. Operation cancelled.")
 
-                    tui.get_input("Press Enter to continue...")
+
 
             elif user_choice == "2":
                 start_date = tui.get_input("Enter Start Date (YYYY-MM-DD)")
@@ -1014,13 +1012,13 @@ def delete_data_menu():
                     datetime.datetime.strptime(end_date, "%Y-%m-%d")
                 except ValueError:
                     tui.show_msg("error", "Invalid date format.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
 
                 count = db.count_records(start_date=start_date, end_date=end_date)
                 if count == 0:
                     tui.show_msg("info", f"No records found between {start_date} and {end_date}.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
 
                 tui.show_msg("warning", f"Uyarı: Bu tarih aralığına ait {count} kayıt bulundu.")
@@ -1031,13 +1029,13 @@ def delete_data_menu():
                     tui.show_msg("success", f"Successfully deleted {deleted} records.")
                 else:
                     tui.show_msg("info", "Deletion cancelled.")
-                tui.get_input("Press Enter to continue...")
+
 
             elif user_choice == "3":
                 count = db.count_records(count_all=True)
                 if count == 0:
                     tui.show_msg("info", "Database is already empty.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
 
                 tui.show_msg("warning", f"Uyarı: Veritabanındaki tüm ({count}) kayıtlar silinecek!")
@@ -1048,17 +1046,17 @@ def delete_data_menu():
                     tui.show_msg("success", f"Successfully deleted {deleted} records.")
                 else:
                     tui.show_msg("info", "Deletion cancelled.")
-                tui.get_input("Press Enter to continue...")
+
 
             else:
                 tui.show_msg("error", "Invalid choice!")
-                tui.get_input("Press Enter to continue...")
+
 
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to menu...")
             return
 
-def menu_4():
+def tui.show_msg("info", "Use /backup, /export, or natural language to manage admin commands."):
     while True:
         try:
             tui.clear_screen()
@@ -1097,12 +1095,12 @@ def menu_4():
                 file_path = tui.get_input("Enter the path to the WAQI CSV file")
                 if not file_path or not os.path.exists(file_path):
                     tui.show_msg("error", "Invalid file path.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
 
                 if not os.path.isfile(file_path):
                     tui.show_msg("error", "Path provided is a directory, not a file.")
-                    tui.get_input("Press Enter to continue...")
+
                     continue
 
                 today = datetime.datetime.now().date()
@@ -1143,7 +1141,7 @@ def menu_4():
                 tui.get_input("Press Enter to return to the admin menu")
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to menu...")
-            tui.get_input("Press Enter to continue")
+
             return
 
 # Admin Menu Ends Here
@@ -1173,7 +1171,7 @@ def menu_5():
 
             if user_choice not in ["1", "2", "3"]:
                 tui.show_msg("error", "Invalid choice. Please try again!!")
-                tui.get_input("Press Enter to continue...")
+
                 continue
 
             city_name = get_city_selection("Enter city name to fetch data for")
@@ -1253,11 +1251,108 @@ def menu_5():
 
         except KeyboardInterrupt:
             tui.show_msg("info", "Action cancelled. Returning to menu...")
-            tui.get_input("Press Enter to continue")
+
             return
 
 
 # |----------------- End of Main Menu and Display Functions ------------------|
 
+
+def chat_loop():
+    import sys
+    import pandas as pd
+
+    tui.show_splash_screen()
+
+    ai = AIEngine()
+    ai._ensure_model_loaded()
+
+    current_persona = "router"
+
+    while True:
+        prompt = tui.get_omnibar_input(persona=current_persona)
+
+        if not prompt:
+            continue
+
+        if prompt.lower() in ["/exit", "/quit"]:
+            tui.show_msg("info", "AILO shutting down. Goodbye!")
+            sys.exit(0)
+
+        elif prompt.lower() == "/clear":
+            tui.show_splash_screen()
+            continue
+
+        elif prompt.lower() == "/help":
+            tui.show_msg("info", "Available Commands:\n/router - Default AI routing\n/analyst - Data science & Pandas logic\n/visualize - Terminal charting\n/train - AI vs AI synthetic training\n/backup - Backup database\n/export - Export to JSON\n/clear - Clear screen\n/exit - Quit")
+            continue
+
+        elif prompt.lower() == "/backup":
+            backup_database(DB_FILE)
+            continue
+
+        elif prompt.lower() == "/export":
+            filename = db.export_to_json()
+            tui.show_msg("success", f"Exported to {filename}")
+            continue
+
+        # Switch Personas
+        if prompt.lower() in ["/router", "/analyst", "/visualize", "/train"]:
+            current_persona = prompt.lower().replace("/", "")
+            tui.show_msg("info", f"Switched persona to: {current_persona.upper()}")
+            continue
+
+        # Handle Input based on Persona
+        if current_persona == "router":
+            orchestrate_intent(prompt, ai_instance=ai)
+
+        elif current_persona == "analyst":
+            from tui_engine import console
+            console.print(f"[magenta][AILO-Analyst][/] Analyzing context...")
+            df = shared_blackboard.get('last_data')
+            if df is None or df.empty:
+                tui.show_msg("warning", "Blackboard is empty. Ask /router to query data first.")
+                continue
+
+            # Simple Pandas stats
+            stats = df.describe(include='all').to_json()
+            with tui.create_spinner("Drafting Executive Summary...") as progress:
+                task_id = progress.add_task("Drafting...", total=None)
+                summary = ai.summarize_data(stats)
+            tui.show_msg("info", f"[bold underline]Executive Summary[/]\n{summary}")
+
+        elif current_persona == "visualize":
+            try:
+                import plotext as plt
+                from tui_engine import console
+                console.print(f"[yellow][AILO-Visualizer][/] Generating graph...")
+                df = shared_blackboard.get('last_data')
+                if df is None or df.empty:
+                    tui.show_msg("warning", "Blackboard is empty. Ask /router to query data first.")
+                    continue
+
+                if 'aqi_value' not in df.columns or 'city_name' not in df.columns:
+                    tui.show_msg("error", "Data does not contain 'aqi_value' and 'city_name' columns needed for plotting.")
+                    continue
+
+                # Plot
+                plt.clear_figure()
+                plt.theme("clear")
+                # Group by city for simple bar
+                grouped = df.groupby('city_name')['aqi_value'].mean().reset_index()
+                plt.bar(grouped['city_name'].tolist(), grouped['aqi_value'].tolist())
+                plt.title("Average AQI by City")
+                plt.show()
+                print("\n")
+            except Exception as e:
+                tui.show_msg("error", f"Plotting failed: {e}")
+
+        elif current_persona == "train":
+            # Direct call to the menu_7 training loop
+            menu_7()
+            # Switch back to router after training
+            current_persona = "router"
+
+# Override execution
 if __name__ == "__main__":
-    main_menu()
+    chat_loop()

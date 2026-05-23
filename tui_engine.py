@@ -34,7 +34,68 @@ console = Console(theme=custom_theme)
 from rich.padding import Padding
 
 def clear_screen():
+    pass # Disabled to support Zero-UI scrollback Chat Paradigm
+
+def show_splash_screen():
     console.clear()
+    logo = """[brand]
+    █████╗ ██╗██╗      ██████╗
+   ██╔══██╗██║██║     ██╔═══██╗
+   ███████║██║██║     ██║   ██║
+   ██╔══██║██║██║     ██║   ██║
+   ██║  ██║██║███████╗╚██████╔╝
+   ╚═╝  ╚═╝╚═╝╚══════╝ ╚═════╝
+    [/brand]"""
+    console.print(logo, justify="center")
+    console.print("[muted]Akıllı Otonom Hava Kalitesi Analiz Uzmanı[/muted]\n", justify="center")
+
+def get_omnibar_input(persona="router") -> str:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import WordCompleter
+    from prompt_toolkit.styles import Style
+
+    # Set up our commands for Ghost Text completion
+    commands = ['/router', '/analyst', '/visualize', '/train', '/backup', '/export', '/clear', '/help', '/exit']
+    completer = WordCompleter(commands, ignore_case=True)
+
+    # Determine prompt color and name
+    if persona == "router":
+        prompt_html = '<ansicyan>[AILO-Router] ❯</ansicyan> '
+    elif persona == "analyst":
+        prompt_html = '<ansimagenta>[AILO-Analyst] ❯</ansimagenta> '
+    elif persona == "visualize":
+        prompt_html = '<ansiyellow>[AILO-Visualizer] ❯</ansiyellow> '
+    elif persona == "train":
+        prompt_html = '<ansigreen>[AILO-Trainer] ❯</ansigreen> '
+    else:
+        prompt_html = '<ansicyan>[AILO-Router] ❯</ansicyan> '
+
+    style = Style.from_dict({
+        'prompt': 'ansicyan bold',
+        '': 'ansiwhite'
+    })
+
+    # We maintain a global session so prompt history persists in memory
+    global prompt_session
+    if 'prompt_session' not in globals():
+        prompt_session = PromptSession()
+
+    try:
+        from prompt_toolkit.formatted_text import HTML
+        # Print standard line break for readability before prompt
+        print()
+        user_input = prompt_session.prompt(
+            HTML(prompt_html),
+            completer=completer,
+            complete_while_typing=True
+        )
+        return user_input.strip()
+    except KeyboardInterrupt:
+        console.print("\n[info]Action cancelled.[/info]")
+        return ""
+    except EOFError:
+        return "/exit"
+
 
 def show_menu(title: str, options: list):
     """
@@ -56,26 +117,6 @@ def show_menu(title: str, options: list):
     console.print(panel, justify="center")
     print("\n") # Add bottom margin
 
-def get_input(prompt_text: str, choices: list = None, default=None, password=False) -> str:
-    """
-    Wraps Rich Prompt. Handles KeyboardInterrupt cleanly by returning an empty string.
-    """
-    # Print the footer directly before the prompt as per CLIG
-    print_footer()
-    try:
-        if choices:
-            result = Prompt.ask(f"[accent]{prompt_text}[/]", console=console, choices=choices, default=default, password=password)
-        else:
-            result = Prompt.ask(f"[accent]{prompt_text}[/]", console=console, default=default, password=password)
-
-        if result is None:
-            return ""
-        return str(result).strip()
-    except KeyboardInterrupt:
-        console.print("\n[info]Action cancelled. Returning to menu...[/]")
-        return ""
-    except EOFError:
-        return ""
 
 def show_msg(msg_type: str, text: str):
     """

@@ -47,7 +47,7 @@ class AIEngine:
             manifest = "Manifest missing."
 
         try:
-            with open("ai_memory.json", "r") as f:
+            with open("memory_router.json", "r") as f:
                 mem_data = json.load(f)
                 if mem_data:
                     memory = "\nSuccessful Past Queries to Learn From:\n"
@@ -201,11 +201,12 @@ Sadece düzeltilmiş ve çalışacak doğru SQL kodunu döndür. Hiçbir açıkl
             return ""
 
 
-    def is_memory_duplicate(self, new_query: str, new_sql: str) -> bool:
+    def is_memory_duplicate(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
         import json
         import difflib
+        filename = f"memory_{persona}.json"
         try:
-            with open("ai_memory.json", "r") as f:
+            with open(filename, "r") as f:
                 mem_data = json.load(f)
 
             for m in mem_data:
@@ -219,21 +220,22 @@ Sadece düzeltilmiş ve çalışacak doğru SQL kodunu döndür. Hiçbir açıkl
         except:
             return False
 
-    def save_to_memory(self, new_query: str, new_sql: str) -> bool:
+    def save_to_memory(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
         import json
-        if self.is_memory_duplicate(new_query, new_sql):
+        if self.is_memory_duplicate(new_query, new_sql, persona):
             return False
 
+        filename = f"memory_{persona}.json"
         memories = []
         try:
-            with open("ai_memory.json", "r") as f:
+            with open(filename, "r") as f:
                 memories = json.load(f)
         except:
             pass
 
         memories.append({"query": new_query, "sql": new_sql})
         try:
-            with open("ai_memory.json", "w") as f:
+            with open(filename, "w") as f:
                 json.dump(memories, f, indent=4)
             return True
         except:
@@ -272,3 +274,23 @@ Return a valid JSON array of strings containing the questions. Example: ["questi
         except Exception as e:
             print(f"Error generating questions: {e}")
             return []
+
+    def summarize_data(self, df_json: str) -> str:
+        self._ensure_model_loaded()
+        if not self.llm:
+            return "AI offline."
+
+        system_prompt = """You are AILO-Analyst. Read the provided JSON data representing air quality records and provide a 2-3 sentence Executive Summary highlighting key statistics, extremes, or trends. Do NOT use markdown. Do not include greetings. Return only the summary text."""
+
+        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\nData:\n{df_json}<|im_end|>\n<|im_start|>assistant\n"
+
+        try:
+            response = self.llm(
+                prompt,
+                max_tokens=256,
+                stop=["<|im_end|>"],
+                temperature=0.3
+            )
+            return response['choices'][0]['text'].strip()
+        except Exception as e:
+            return f"Error analyzing data: {e}"
