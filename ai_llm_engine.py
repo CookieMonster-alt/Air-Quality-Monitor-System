@@ -62,7 +62,21 @@ class AIEngine:
             with open(os.path.join(BASE_DIR, "ai_memory.json"), "r") as f:
                 mem_data = json.load(f)
                 if mem_data:
-                    for m in mem_data[-5:]: # Last 5 memories
+                    has_relative_query = any(w in user_prompt.lower() for w in ["yesterday", "today", "week", "month", "ago", "last"])
+                    filtered_mems = []
+                    for m in mem_data:
+                        mem_s = m.get('sql', '').lower()
+                        is_relative_mem = "date('now'" in mem_s or "datetime('now'" in mem_s
+                        # If user prompt is relative, only show relative memories
+                        if has_relative_query:
+                            if not is_relative_mem:
+                                continue
+                        else:
+                            # If user prompt is not relative, exclude relative memories
+                            if is_relative_mem:
+                                continue
+                        filtered_mems.append(m)
+                    for m in filtered_mems[-5:]: # Last 5 filtered memories
                         history_str += f"<|im_start|>user\n{m['query']}<|im_end|>\n<|im_start|>assistant\n{m['sql']}<|im_end|>\n"
         except:
             pass
@@ -71,11 +85,18 @@ class AIEngine:
 System Identity and Rules:
 {manifest}
 Generate a SELECT query based on the user's request.
-CRITICAL: YOU MUST USE THE EXACT TABLE NAME AND COLUMNS DEFINED IN THE MANIFEST. THE TABLE IS records AND THE CITY COLUMN IS city_name. THE AQI COLUMN IS aqi_value (NOT aqi). DO NOT INVENT TABLES LIKE cities.
-Return ONLY the raw SQL query.
-DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
-DO NOT provide any explanations.
-ONLY return the SQL statement."""
+
+Rules:
+- CRITICAL: YOU MUST USE THE EXACT TABLE NAME AND COLUMNS DEFINED IN THE MANIFEST. THE TABLE IS records AND THE CITY COLUMN IS city_name. THE AQI COLUMN IS aqi_value (NOT aqi). DO NOT INVENT TABLES LIKE cities.
+- ALWAYS use `SELECT * FROM records` to ensure all columns (like timestamp) are included in the results. Do NOT select specific columns.
+- Handle relative time periods in the WHERE clause using SQLite date functions:
+  - "yesterday": timestamp >= date('now', '-1 day') AND timestamp < date('now')
+  - "last week" or "past week": timestamp >= date('now', '-7 days')
+  - "this month": timestamp >= date('now', 'start of month')
+- Return ONLY the raw SQL query.
+- DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
+- DO NOT provide any explanations.
+- ONLY return the SQL statement."""
 
         prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n{history_str}<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
 
@@ -112,6 +133,27 @@ ONLY return the SQL statement."""
             print(f"Error generating SQL: {e}")
             return ""
 
+    def explain_sql(self, sql_query: str) -> str:
+        self._ensure_model_loaded()
+        if not self.llm:
+            return "AI engine offline."
+            
+        system_prompt = "You are a helpful data assistant. Explain the following SQL query in one short, simple natural language sentence so a non-technical user can understand it."
+        user_prompt = f"Explain this SQL query:\n{sql_query}"
+        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
+        
+        try:
+            response = self.llm(
+                prompt,
+                max_tokens=80,
+                stop=["<|im_end|>"],
+                temperature=0.3
+            )
+            explanation = response['choices'][0]['text'].strip()
+            return explanation
+        except Exception as e:
+            return "Could not generate explanation."
+
 
     def parse_intent(self, user_prompt: str) -> dict:
         self._ensure_model_loaded()
@@ -120,7 +162,10 @@ ONLY return the SQL statement."""
 
         import datetime
         import json
-        today = datetime.date.today().isoformat()
+        today_dt = datetime.date.today()
+        today = today_dt.isoformat()
+        yesterday = (today_dt - datetime.timedelta(days=1)).isoformat()
+        seven_days_ago = (today_dt - datetime.timedelta(days=7)).isoformat()
 
         manifest = ""
         try:
@@ -128,6 +173,15 @@ ONLY return the SQL statement."""
                 manifest = f.read()
         except:
             manifest = "Manifest missing."
+
+        intent_memories_str = ""
+        try:
+            with open(os.path.join(BASE_DIR, "ai_intent_memory.json"), "r") as f:
+                memories = json.load(f)
+                for mem in memories[-5:]:
+                    intent_memories_str += f"\nUser: \"{mem['query']}\"\nResult:\n{json.dumps(mem['json'], indent=2)}\n"
+        except:
+            pass
 
         system_prompt = f"""{manifest}
 You are AILO, the Intent Router for the System.
@@ -152,15 +206,174 @@ Analyze the user's natural language input and output ONLY a valid JSON object ma
   "ask_user": string | null
 }}
 
-Rules:
-- "query": User wants to search, read, or analyze data. (e.g. "show me the highest AQI")
-- "insert": User wants to add new data. (e.g. "create a aqi for this city for today")
-- "delete": User wants to erase data. (e.g. "delete records for london yesterday" -> set date. "delete database" -> set delete_all to true)
-- "fetch_data": User wants to download historical/live data. If they ask to fetch/download from web/WAQI (e.g. "download last week aqi for amsterdam"), set `source` to "api", extract the city, and calculate the `start_date` and `end_date` based on today's date ({today}). If they ask to load a file, set `source` to "csv" and require a `url`.
-- Automatically convert relative time words ("yesterday", "last week") into actual dates (YYYY-MM-DD) based on today's date ({today}).
-- If an intent requires specific parameters that are missing, set "status": "incomplete", specify "missing_slot", and write a natural question in "ask_user".
-- E.g. If insert is requested but aqi is missing, you DO NOT need to ask for aqi, because the system can fetch it autonomously. Just return city.
-- DO NOT wrap the output in markdown. Output purely the JSON object.
+Guidelines:
+- "query": Reading, viewing, calculating, or searching existing database records (e.g. "what is...", "show...", "get...", "mean", "average"). DO NOT extract dates or sources for query. Only extract "city" if specified. All other parameter fields MUST be null or false.
+- "insert": Manually adding/entering a new record, city, and its AQI value to the database. The input will typically contain words like "enter", "insert", "add", "record", "save" along with a city and/or AQI value. You must extract the "city", "aqi" (as a float), and "date" (resolved relative to {today} if yesterday/today/etc. is mentioned).
+- "fetch_data": Downloading new/external bulk data from an API or CSV file. DO NOT use this for answering questions like "what is" or "show".
+- Automatically calculate start_date and end_date based on today's date ({today}) when translating relative times like "last week" (7 days ago to today) ONLY for fetch_data and delete.
+
+Examples:
+
+User: "What is mean value for last week?"
+Result:
+{{
+  "intent": "query",
+  "parameters": {{
+    "city": null,
+    "aqi": null,
+    "date": null,
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "What is last week london aqi data"
+Result:
+{{
+  "intent": "query",
+  "parameters": {{
+    "city": "london",
+    "aqi": null,
+    "date": null,
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "show the highest record for Berlin"
+Result:
+{{
+  "intent": "query",
+  "parameters": {{
+    "city": "berlin",
+    "aqi": null,
+    "date": null,
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "Enter data foramsterdam yesterdays aqi value 5.8"
+Result:
+{{
+  "intent": "insert",
+  "parameters": {{
+    "city": "amsterdam",
+    "aqi": 5.8,
+    "date": "{yesterday}",
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "add records for Paris aqi 45"
+Result:
+{{
+  "intent": "insert",
+  "parameters": {{
+    "city": "paris",
+    "aqi": 45.0,
+    "date": null,
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "download last week aqi for Tokyo"
+Result:
+{{
+  "intent": "fetch_data",
+  "parameters": {{
+    "city": "tokyo",
+    "aqi": null,
+    "date": null,
+    "start_date": "{seven_days_ago}",
+    "end_date": "{today}",
+    "url": null,
+    "source": "api",
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "delete records for Rome yesterday"
+Result:
+{{
+  "intent": "delete",
+  "parameters": {{
+    "city": "rome",
+    "aqi": null,
+    "date": "{yesterday}",
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": false,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+
+User: "delete all records"
+Result:
+{{
+  "intent": "delete",
+  "parameters": {{
+    "city": null,
+    "aqi": null,
+    "date": null,
+    "start_date": null,
+    "end_date": null,
+    "url": null,
+    "source": null,
+    "delete_all": true,
+    "menu_target": null
+  }},
+  "status": "complete",
+  "missing_slot": null,
+  "ask_user": null
+}}
+{intent_memories_str}
 """
 
         prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
@@ -303,3 +516,69 @@ Return a valid JSON array of strings containing the questions. Example: ["questi
         except Exception as e:
             print(f"Error generating questions: {e}")
             return []
+
+    def ai_oracle_intent_fallback(self, user_prompt: str) -> tuple[dict, str]:
+        import google.generativeai as genai
+        import json
+        import datetime
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return {"intent": "unknown", "status": "incomplete", "ask_user": "Gemini API key missing."}, "Gemini API key missing."
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            
+            today = datetime.date.today().isoformat()
+            
+            prompt = f"""You are the Cloud Oracle for Intent Parsing. The local model failed to parse this user prompt:
+"{user_prompt}"
+
+Return a valid JSON object matching the required schema and an explanation string.
+Return EXACTLY this JSON structure, nothing else:
+{{
+  "json_output": {{
+    "intent": "query" | "insert" | "delete" | "fetch_data" | "navigate",
+    "parameters": {{ ... }},
+    "status": "complete",
+    "missing_slot": null,
+    "ask_user": null
+  }},
+  "explanation": "Why the local model might have failed and how you resolved it."
+}}
+Today's date is {today}.
+"""
+            response = model.generate_content(prompt)
+            text = response.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            if text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            
+            data = json.loads(text.strip())
+            return data.get("json_output", {}), data.get("explanation", "Parsed via Gemini.")
+        except Exception as e:
+            return {"intent": "unknown", "status": "incomplete", "ask_user": f"Oracle error: {e}"}, str(e)
+
+    def save_intent_memory(self, user_prompt: str, intent_json: dict) -> bool:
+        import json
+        memory_file = os.path.join(BASE_DIR, "ai_intent_memory.json")
+        memories = []
+        try:
+            with open(memory_file, "r") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, list): memories = loaded
+        except:
+            pass
+            
+        for m in memories:
+            if m.get("query") == user_prompt:
+                return False
+                
+        memories.append({"query": user_prompt, "json": intent_json})
+        
+        try:
+            with open(memory_file, "w") as f:
+                json.dump(memories, f, indent=4)
+            return True
+        except:
+            return False
