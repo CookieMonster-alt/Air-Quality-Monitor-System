@@ -4,4 +4,3 @@ aqi_data.db
 
 # Security
 .env
-ai_memory.json
