@@ -59,7 +59,11 @@ class AIEngine:
 
         history_str = ""
         try:
+
+            with open("memory_router.json", "r") as f:
+
             with open(os.path.join(BASE_DIR, "ai_memory.json"), "r") as f:
+main
                 mem_data = json.load(f)
                 if mem_data:
                     has_relative_query = any(w in user_prompt.lower() for w in ["yesterday", "today", "week", "month", "ago", "last"])
@@ -162,10 +166,16 @@ Rules:
 
         import datetime
         import json
+
+        import difflib
+
+        today = datetime.date.today().isoformat()
+
         today_dt = datetime.date.today()
         today = today_dt.isoformat()
         yesterday = (today_dt - datetime.timedelta(days=1)).isoformat()
         seven_days_ago = (today_dt - datetime.timedelta(days=7)).isoformat()
+main
 
         manifest = ""
         try:
@@ -174,6 +184,27 @@ Rules:
         except:
             manifest = "Manifest missing."
 
+
+        # RAG Mimarisi: Geçmişte yaşadığımız tecrübelerden en benzer 3 tanesini bulup bağlama ekleyelim.
+        past_experiences = ""
+        try:
+            with open("memory_intent.json", "r") as f:
+                memories = json.load(f)
+
+            if memories:
+                queries = [m['query'] for m in memories]
+                # En çok benzeyen 3 sorguyu yakalayalım
+                matches = difflib.get_close_matches(user_prompt, queries, n=3, cutoff=0.1)
+
+                if matches:
+                    past_experiences = "\nÖğrenilen Geçmiş Tecrübeler:\n"
+                    for match in matches:
+                        for m in memories:
+                            if m['query'] == match:
+                                past_experiences += f"Kullanıcı: {m['query']}\nDoğru Çıktı: {m['sql']}\n\n"
+                                break
+        except Exception:
+
         intent_memories_str = ""
         try:
             with open(os.path.join(BASE_DIR, "ai_intent_memory.json"), "r") as f:
@@ -181,11 +212,13 @@ Rules:
                 for mem in memories[-5:]:
                     intent_memories_str += f"\nUser: \"{mem['query']}\"\nResult:\n{json.dumps(mem['json'], indent=2)}\n"
         except:
+main
             pass
 
         system_prompt = f"""{manifest}
 You are AILO, the Intent Router for the System.
 Today's date is: {today}.
+{past_experiences}
 
 Analyze the user's natural language input and output ONLY a valid JSON object matching this schema:
 {{
@@ -387,18 +420,51 @@ Result:
             )
             output_text = response['choices'][0]['text'].strip()
 
-            # Cleanup markdown if model hallucinates it
-            if output_text.startswith("```json"):
-                output_text = output_text[7:]
-            if output_text.startswith("```"):
-                output_text = output_text[3:]
-            if output_text.endswith("```"):
-                output_text = output_text[:-3]
+            # Markdown temizliği
+            if output_text.startswith("```json"): output_text = output_text[7:]
+            if output_text.startswith("```"): output_text = output_text[3:]
+            if output_text.endswith("```"): output_text = output_text[:-3]
 
-            return json.loads(output_text.strip())
+            # Burada çökme riskine karşı try-except bloğuyla json parse deniyoruz
+            try:
+                return json.loads(output_text.strip())
+            except json.JSONDecodeError:
+                # Yerel model JSON'ı bozduysa Cloud Oracle yetişip toparlasın
+                return self.ai_intent_oracle_fallback(user_prompt, output_text.strip())
+
         except Exception as e:
             print(f"Error parsing intent: {e}")
             return {"intent": "unknown", "status": "incomplete", "ask_user": "I failed to parse your intent."}
+
+
+    def summarize_data(self, df_json: str) -> str:
+        self._ensure_model_loaded()
+        if not self.llm:
+            return "AI offline."
+
+        system_prompt = """You are AILO-Analyst. Read the provided JSON data representing air quality records and provide a 2-3 sentence Executive Summary highlighting key statistics, extremes, or trends. Do NOT use markdown. Do not include greetings. Return only the summary text."""
+
+        prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\nData:\n{df_json}<|im_end|>\n<|im_start|>assistant\n"
+
+        try:
+            response = self.llm(
+                prompt,
+                max_tokens=256,
+                stop=["<|im_end|>"],
+                temperature=0.3
+            )
+            return response['choices'][0]['text'].strip()
+        except Exception as e:
+            return f"Error analyzing data: {e}"
+
+    def ai_intent_oracle_fallback(self, user_prompt: str, bad_output: str) -> dict:
+        import google.generativeai as genai
+        import os
+        import json
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return {"intent": "unknown", "status": "incomplete", "ask_user": "Oracle offline."}
 
     def ai_oracle_fallback(self, user_prompt: str, bad_sql: str, sqlite_error: str) -> tuple[str, str]:
         import google.generativeai as genai
@@ -406,19 +472,23 @@ Result:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             return "", "Gemini API key is missing."
+main
 
         try:
             genai.configure(api_key=api_key)
             # Use gemini-2.5-flash as the fast oracle
             model = genai.GenerativeModel('gemini-2.5-flash')
 
-            prompt = f"""Şema:
-table: records
-columns: id (INTEGER PRIMARY KEY), city_name (TEXT), aqi_value (REAL), timestamp (TEXT)
+            prompt = f"""Kullanıcı cümlesi: {user_prompt}
+Yerel modelin ürettiği hatalı çıktı: {bad_output}
 
-Kullanıcı Sorusu: {user_prompt}
-Yerel modelin ürettiği bozuk SQL: {bad_sql}
-SQLite Hatası: {sqlite_error}
+
+Lütfen bu cümleyi sistem manifestomuza uygun olarak analiz et ve SADECE geçerli bir JSON objesi döndür.
+Beklenen alanlar: intent, parameters (city, aqi, vb.), status, missing_slot, ask_user.
+Hiçbir ek açıklama yapma."""
+
+            response = model.generate_content(prompt)
+            fixed_json_str = response.text.strip()
 
 Bozuk SQL'i düzelt ve sebebini açıkla.
 Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
@@ -451,22 +521,22 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
         try:
             with open(os.path.join(BASE_DIR, "ai_memory.json"), "r") as f:
                 mem_data = json.load(f)
+main
 
-            for m in mem_data:
-                if m.get('sql', '').strip().upper() == new_sql.strip().upper():
-                    return True
+            if fixed_json_str.startswith("```json"): fixed_json_str = fixed_json_str[7:]
+            if fixed_json_str.startswith("```"): fixed_json_str = fixed_json_str[3:]
+            if fixed_json_str.endswith("```"): fixed_json_str = fixed_json_str[:-3]
 
-                ratio = difflib.SequenceMatcher(None, m.get('query', '').lower(), new_query.lower()).ratio()
-                if ratio > 0.85:
-                    return True
-            return False
-        except:
-            return False
+            parsed_data = json.loads(fixed_json_str.strip())
 
-    def save_to_memory(self, new_query: str, new_sql: str) -> bool:
-        import json
-        if self.is_memory_duplicate(new_query, new_sql):
-            return False
+
+            # Hatayı düzeltmeyi başardık, bunu hafızaya kazıyalım ki bir daha yaşanmasın.
+            self.save_to_memory(user_prompt, json.dumps(parsed_data), persona="intent")
+            return parsed_data
+
+        except Exception as e:
+            print(f"Oracle intent fallback error: {e}")
+            return {"intent": "unknown", "status": "incomplete", "ask_user": "Oracle was unable to parse the intent."}
 
         memories = []
         try:
@@ -482,12 +552,21 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
             return True
         except:
             return False
+main
 
-    def generate_training_questions(self, topic: str, count: int) -> list:
+    def ai_analyst_oracle_fallback(self, data_input: str, bad_output: str) -> str:
         import google.generativeai as genai
-        import json
+        import os
+
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
+
+            return "Oracle offline."
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
             return []
 
         manifest = ""
@@ -500,20 +579,23 @@ Lütfen sadece aşağıdaki JSON formatında yanıt ver (markdown vb. kullanma):
         try:
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
+main
 
-            prompt = f"""{manifest}
+            prompt = f"""Veri: {data_input}
+Yerel modelin hatalı/boş özeti: {bad_output}
 
-You are the Teacher for the AILO system. Generate exactly {count} natural language questions to train the Text-to-SQL engine.
-The user requested the topic: '{topic}'.
-CRITICAL GUARDRAIL: If the topic is completely irrelevant to air quality or the database schema (e.g., cooking, games, nonsense), you MUST forcefully pivot the topic to an air quality context (e.g., 'impact of restaurants on air pollution') or simply generate standard AQI and city-based queries. Never step outside the schema bounds.
-Return a valid JSON array of strings containing the questions. Example: ["question 1", "question 2"]"""
+Lütfen bu hava kalitesi verisini okuyup 2-3 cümlelik çok şık ve net bir yönetici özeti yaz. Markdown kullanma."""
 
             response = model.generate_content(prompt)
-            data = json.loads(response.text.strip())
-            if isinstance(data, list):
-                return data
-            return []
+            fixed_summary = response.text.strip()
+
+            # Gelecekte aynı veride takılmaması için hafızaya kaydedelim
+            self.save_to_memory(data_input, fixed_summary, persona="analyst")
+            return fixed_summary
         except Exception as e:
+
+            return f"Oracle analyst fallback error: {e}"
+
             print(f"Error generating questions: {e}")
             return []
 
@@ -582,3 +664,4 @@ Today's date is {today}.
             return True
         except:
             return False
+main
