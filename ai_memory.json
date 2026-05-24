@@ -1,1 +1,106 @@
-[]
+[
+    {
+        "query": "Highest aqi for london and date",
+        "sql": "SELECT * FROM records WHERE city_name = 'London' ORDER BY aqi_value DESC LIMIT 1;"
+    },
+    {
+        "query": "Show me all air quality records for London on January 15, 2023.",
+        "sql": "SELECT * FROM records WHERE city_name = 'London' AND timestamp LIKE '2023-01-15%'"
+    },
+    {
+        "query": "What were the air quality levels in New York City during March 2023?",
+        "sql": "SELECT * FROM records WHERE city_name = 'New York City' AND timestamp LIKE '2023-03%'"
+    },
+    {
+        "query": "Retrieve all air quality measurements taken in the last 7 days.",
+        "sql": "SELECT * FROM records WHERE timestamp >= date('now', '-7 days') ORDER BY timestamp DESC;"
+    },
+    {
+        "query": "List the air quality data for Paris between 2023-01-01 and 2023-01-31.",
+        "sql": "SELECT * FROM records WHERE city_name = 'Paris' AND timestamp BETWEEN '2023-01-01' AND '2023-01-31'"
+    },
+    {
+        "query": "Find the most recent air quality record available in the database.",
+        "sql": "SELECT * FROM records ORDER BY timestamp DESC LIMIT 1"
+    },
+    {
+        "query": "What was the air quality in Tokyo yesterday?",
+        "sql": "SELECT * FROM records WHERE city_name = 'Tokyo' AND timestamp >= date('now', '-1 day') AND timestamp < date('now') ORDER BY timestamp DESC;"
+    },
+    {
+        "query": "Display all air quality reports from the year 2022.",
+        "sql": "SELECT * FROM records WHERE timestamp LIKE '2022%'"
+    },
+    {
+        "query": "Show me the record with the highest AQI value reported on 2023-02-10.",
+        "sql": "SELECT * FROM records WHERE timestamp LIKE '2023-02-10%' ORDER BY aqi_value DESC LIMIT 1"
+    },
+    {
+        "query": "What is the earliest recorded air quality measurement?",
+        "sql": "SELECT * FROM records ORDER BY timestamp ASC LIMIT 1"
+    },
+    {
+        "query": "Are there any air quality records for Beijing from December 2022?",
+        "sql": "SELECT * FROM records WHERE city_name = 'Beijing' AND timestamp LIKE '2022-12%'"
+    },
+    {
+        "query": "What were the AQI values in Rome between February 15, 2023, and February 20, 2023?",
+        "sql": "SELECT * FROM records WHERE city_name = 'Rome' AND timestamp BETWEEN '2023-02-15' AND '2023-02-20'"
+    },
+    {
+        "query": "Retrieve the most recent air quality data for Cairo.",
+        "sql": "SELECT * FROM records WHERE city_name = 'Cairo' ORDER BY timestamp DESC LIMIT 1"
+    },
+    {
+        "query": "Display all air quality records for New Delhi during the month of April 2023.",
+        "sql": "SELECT * FROM records WHERE city_name = 'New Delhi' AND timestamp BETWEEN '2023-04-01' AND '2023-04-30'"
+    },
+    {
+        "query": "What are the air quality readings from the current month?",
+        "sql": "SELECT * FROM records WHERE timestamp BETWEEN date('now', 'start of month') AND date('now')"
+    },
+    {
+        "query": "Show me all records that were added after 2023-06-30.",
+        "sql": "SELECT * FROM records WHERE timestamp > '2023-06-30'"
+    },
+    {
+        "query": "Can you list the air quality data from November 2023 where the city was 'Beijing'?",
+        "sql": "SELECT * FROM records WHERE city_name = 'Beijing' AND timestamp LIKE '2023-11%'"
+    },
+    {
+        "query": "Display all air quality records from the first week of March 2023.",
+        "sql": "SELECT * FROM records WHERE timestamp >= date('now', '-7 days')"
+    },
+    {
+        "query": "What is the current air quality reading for New York City?",
+        "sql": "SELECT * FROM records WHERE city_name = 'New York City'"
+    },
+    {
+        "query": "Show me all the air quality records we have for London.",
+        "sql": "SELECT * FROM records WHERE city_name = 'London'"
+    },
+    {
+        "query": "Which city recorded the best air quality value recently?",
+        "sql": "SELECT * FROM records ORDER BY aqi_value DESC LIMIT 1"
+    },
+    {
+        "query": "Provide the latest air quality data for 'paris'.",
+        "sql": "SELECT * FROM records WHERE city_name = 'paris' ORDER BY timestamp DESC LIMIT 1"
+    },
+    {
+        "query": "What are the air quality measurements for both Berlin and Rome?",
+        "sql": "SELECT * FROM records WHERE city_name IN ('Berlin', 'Rome')"
+    },
+    {
+        "query": "Show all air quality records where the AQI value is considered unhealthy, specifically above 150.",
+        "sql": "SELECT * FROM records WHERE aqi_value > 150"
+    },
+    {
+        "query": "Retrieve the record showing the highest AQI recorded specifically for Paris.",
+        "sql": "SELECT * FROM records WHERE city_name = 'Paris' ORDER BY aqi_value DESC LIMIT 1"
+    },
+    {
+        "query": "List any record where the AQI value falls below 20, indicating exceptionally good air quality.",
+        "sql": "SELECT * FROM records WHERE aqi_value < 20"
+    }
+]

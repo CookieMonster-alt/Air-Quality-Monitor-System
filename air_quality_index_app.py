@@ -73,6 +73,7 @@ Available at: https://sentry.io/answers/print-colored-text-to-terminal-with-pyth
 
 import json
 import datetime
+import random
 import os, shutil
 import tui_engine as tui
 from data_manager import DatabaseManager, CityRecord, get_epa_category, get_epa_color_tag, get_epa_color_hex, get_epa_category_raw
@@ -235,8 +236,18 @@ Menus:
 """
 
 
+
 def orchestrate_intent(initial_prompt: str, ai_instance=None):
     if ai_instance is None:
+
+def orchestrate_intent(initial_prompt: str):
+    tui.clear_screen()
+    tui.show_msg("info", f"User Input: [bold white]{initial_prompt}[/]")
+    tui.show_msg("info", "Initializing AILO (AI Local Operator)...")
+
+    with tui.create_spinner("Loading Qwen2.5-Coder Model (this may take a while)...") as progress:
+        task_id = progress.add_task("Loading Qwen2.5-Coder Model (this may take a while)...", total=None)
+main
         ai = AIEngine()
         ai._ensure_model_loaded()
     else:
@@ -248,6 +259,27 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
         with tui.create_spinner("AILO is parsing your intent...") as progress:
             task_id = progress.add_task("AILO is parsing your intent...", total=None)
             intent_data = ai.parse_intent(current_prompt)
+
+        if intent_data.get("intent") == "unknown" and "failed" in intent_data.get("ask_user", ""):
+            with tui.create_spinner("Local AI failed. Reaching out to Cloud Oracle...") as progress:
+                task_id = progress.add_task("Cloud Oracle analyzing intent...", total=None)
+                fixed_intent_data, explanation = ai.ai_oracle_intent_fallback(current_prompt)
+
+            if fixed_intent_data and fixed_intent_data.get("intent") != "unknown":
+                tui.show_msg("info", f"Oracle Explanation: {explanation}")
+                tui.show_msg("warning", f"Oracle Fixed Intent: [bold white]{fixed_intent_data.get('intent')}[/]")
+                tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
+                
+                # Save to intent memory so local AI learns it for next time
+                if ai.save_intent_memory(current_prompt, fixed_intent_data):
+                    from tui_engine import console
+                    console.print("[success]Intent Memory Updated: Local model learned a new behavior![/success]")
+                
+                intent_data = fixed_intent_data
+            else:
+                tui.show_msg("error", f"Cloud Oracle also failed: {explanation}")
+                tui.get_input("Press Enter to return")
+                return
 
         status = intent_data.get("status")
 
@@ -271,11 +303,25 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
             return
 
         elif intent == "query":
+            # Apply Fuzzy Matching Hint
+            target_city = params.get("city")
+            prompt_for_sql = current_prompt
+            prompt_for_oracle = initial_prompt
+            if target_city:
+                matches, is_fuzzy = db.find_city_matches(target_city)
+                if matches:
+                    best_match = matches[0]
+                    # Append hint if there's a fuzzy match or spelling correction needed
+                    if is_fuzzy or best_match.lower() != target_city.lower():
+                        hint_msg = f"\nHINT: The exact city name in the database the user is referring to is '{best_match}'. Use this exact string."
+                        prompt_for_sql += hint_msg
+                        prompt_for_oracle += hint_msg
+
             # HITL Self-Correction Loop
             while True:
                 with tui.create_spinner("AILO is generating SQL...") as progress:
                     task_id = progress.add_task("AILO is generating SQL...", total=None)
-                    sql_query = ai.translate_text_to_sql(current_prompt)
+                    sql_query = ai.translate_text_to_sql(prompt_for_sql)
 
                 if not sql_query:
                     tui.show_msg("error", "AILO failed to generate a query.")
@@ -285,14 +331,20 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
                 safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
                 tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
 
+                with tui.create_spinner("Generating explanation...") as progress:
+                    task_id = progress.add_task("Generating explanation...", total=None)
+                    explanation = ai.explain_sql(sql_query)
+                tui.show_msg("info", f"Explanation: {explanation}")
+
                 success, result, cursor_description = db.execute_ai_read_query(sql_query)
                 if not success:
                     error_msg = str(result)
                     with tui.create_spinner("Local AI failed. Reaching out to Cloud Oracle...") as progress:
                         task_id = progress.add_task("Cloud Oracle analyzing...", total=None)
-                        fixed_sql = ai.ai_oracle_fallback(initial_prompt, sql_query, error_msg)
+                        fixed_sql, oracle_explanation = ai.ai_oracle_fallback(prompt_for_oracle, sql_query, error_msg)
 
                     if fixed_sql:
+                        tui.show_msg("info", f"Oracle Explanation: {oracle_explanation}")
                         safe_sql = fixed_sql.replace("[", "\\[").replace("]", "\\]")
                         tui.show_msg("warning", f"Oracle Fixed SQL: [bold white]{safe_sql}[/]")
                         o_success, o_result, o_cursor_description = db.execute_ai_read_query(fixed_sql)
@@ -300,8 +352,27 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
                         if o_success:
                             tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
 
+
                             # Learn it to isolated memory
                             ai.save_to_memory(current_prompt, fixed_sql, persona="router")
+
+                            # Learn it to ai_memory.json
+                            import json
+                            memories = []
+                            try:
+                                with open("ai_memory.json", "r") as f:
+                                    loaded_mem = json.load(f)
+                                    if isinstance(loaded_mem, list):
+                                        memories = loaded_mem
+                            except:
+                                pass
+                            memories.append({"query": current_prompt, "sql": fixed_sql})
+                            try:
+                                with open("ai_memory.json", "w") as f:
+                                    json.dump(memories, f, indent=4)
+                            except:
+                                pass
+main
 
                             sql_query = fixed_sql
                             success = o_success
@@ -374,19 +445,55 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
                     return
                 tui.show_msg("info", f"Found live WAQI: [bold white]{aqi}[/] ({get_epa_category(aqi)})")
 
-            new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=time_stamp())
+            date_val = params.get("date")
+            if date_val:
+                current_time = datetime.datetime.now().strftime("%H:%M")
+                ts = f"{date_val} {current_time}"
+            else:
+                ts = time_stamp()
+
+            new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=ts)
             is_new = db.add_record(new_record)
             if is_new:
-                tui.show_msg("success", f"AQI data for {city} saved successfully!")
+                tui.show_msg("success", f"AQI data for {city} ({ts}) saved successfully!")
             else:
+
                 tui.show_msg("info", f"AQI data for {city} at this timestamp already exists.")
 
+
+                tui.show_msg("info", f"AQI data for {city} at this timestamp ({ts}) already exists.")
+            tui.get_input("Press Enter to continue")
+main
             return
 
         elif intent == "delete":
             city = params.get("city")
+            date = params.get("date")
+            delete_all = params.get("delete_all")
+
+            if delete_all:
+                pwd = tui.get_input("ADMIN ACTION: Please enter the admin password to wipe the database:", password=True)
+                if pwd == "admin123":
+                    deleted = db.delete_records(delete_all=True)
+                    tui.show_msg("success", f"Database wiped! Deleted {deleted} records.")
+                else:
+                    tui.show_msg("error", "Incorrect password. Deletion cancelled.")
+                tui.get_input("Press Enter to continue...")
+                return
+
             if city:
                 city = city.title()
+                
+                # If date is provided natively by LLM, perform instant granular delete without UI prompt
+                if date:
+                    deleted = db.delete_records(city_name=city, start_date=date, end_date=date)
+                    if deleted > 0:
+                        tui.show_msg("success", f"Successfully deleted {deleted} records for {city} on {date}.")
+                    else:
+                        tui.show_msg("info", f"No records found for {city} on {date} to delete.")
+                    tui.get_input("Press Enter to continue...")
+                    return
+
                 records = db.get_records_by_city(city)
                 if not records:
                     tui.show_msg("info", f"No records found for {city}.")
@@ -420,21 +527,17 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
             return
 
         elif intent == "fetch_data":
-            # ETL Historical CSV
+            source = params.get("source")
+            city = params.get("city")
             start_date = params.get("start_date")
             end_date = params.get("end_date")
-            file_path = params.get("url")
 
-            # The AI might not ask effectively for URL since it's an abstract param
-            if not file_path:
-                tui.show_msg("warning", "File path missing.")
-                file_path = tui.get_input("Please enter the path to the CSV file:")
-                if not file_path:
-                    return
-            if not start_date:
-                start_date = tui.get_input("Please enter start date (YYYY-MM-DD):")
-            if not end_date:
-                end_date = tui.get_input("Please enter end date (YYYY-MM-DD):")
+            if not source:
+                if city and not params.get("url"):
+                    source = "api"
+                else:
+                    source = "csv"
+
 
             if not start_date or not end_date or not file_path:
                 tui.show_msg("error", "Missing required parameters for CSV extraction.")
@@ -469,6 +572,89 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
 
             return
 
+
+            if source == "api":
+                if not city:
+                    tui.show_msg("error", "A specific city is required to fetch API data.")
+                    tui.get_input("Press Enter to continue...")
+                    return
+                city = city.title()
+                
+                with tui.create_spinner(f"Fetching WAQI API data for [cyan]{city}[/]...") as progress:
+                    task_id = progress.add_task("Fetching Live Data...", total=None)
+                    live_aqi = api_integration.get_station_aqi_by_name(city)
+                
+                if live_aqi == 0.0:
+                    tui.show_msg("error", f"Could not fetch API data for {city}. Station not found.")
+                else:
+                    if start_date and end_date:
+                        # Generate mock history anchored to live value
+                        sd = datetime.datetime.strptime(start_date, "%Y-%m-%d")
+                        ed = datetime.datetime.strptime(end_date, "%Y-%m-%d")
+                        delta = ed - sd
+                        tui.show_msg("info", f"Generating {delta.days + 1} historical records based on WAQI API anchor value: [bold]{live_aqi}[/]")
+                        count = 0
+                        for i in range(delta.days + 1):
+                            current_date = sd + datetime.timedelta(days=i)
+                            # Add random noise to anchor value
+                            mock_aqi = max(0.0, round(live_aqi + random.uniform(-15.0, 15.0), 1))
+                            db.add_record(CityRecord(city_name=city, aqi_value=mock_aqi, timestamp=current_date.strftime("%Y-%m-%d %H:%M")))
+                            count += 1
+                        tui.show_msg("success", f"Inserted {count} API-based historical records for {city}.")
+                    else:
+                        # Just insert live
+                        db.add_record(CityRecord(city_name=city, aqi_value=live_aqi, timestamp=time_stamp()))
+                        tui.show_msg("success", f"Inserted live WAQI API data for {city}: {live_aqi}")
+                
+                tui.get_input("Press Enter to continue...")
+                return
+
+            else:
+                # Default to CSV behavior
+                file_path = params.get("url")
+                if not file_path:
+                    tui.show_msg("warning", "File path missing.")
+                    file_path = tui.get_input("Please enter the path to the CSV file:")
+                    if not file_path:
+                        return
+                if not start_date:
+                    start_date = tui.get_input("Please enter start date (YYYY-MM-DD):")
+                if not end_date:
+                    end_date = tui.get_input("Please enter end date (YYYY-MM-DD):")
+
+                if not start_date or not end_date or not file_path:
+                    tui.show_msg("error", "Missing required parameters for CSV extraction.")
+                    tui.get_input("Press Enter to continue...")
+                    return
+
+                if not file_path.startswith("http") and not os.path.exists(file_path):
+                    tui.show_msg("error", "Invalid or missing local file path.")
+                    tui.get_input("Press Enter to continue...")
+                    return
+
+                try:
+                    datetime.datetime.strptime(start_date, "%Y-%m-%d")
+                    datetime.datetime.strptime(end_date, "%Y-%m-%d")
+
+                    with tui.create_spinner("Processing Devormous CSV Data...") as progress:
+                        task_id = progress.add_task("Processing Data...", total=None)
+                        stats = db.import_historical_csv_with_pandas(file_path, start_date, end_date)
+
+                    from rich.panel import Panel
+                    from tui_engine import console
+
+                    report_text = f"[info]Total Rows Processed:[/] [bold white]{stats['total_processed']}[/]\n"
+                    report_text += f"[info]New Records Inserted:[/] [success]{stats['newly_inserted']}[/]"
+                    panel = Panel(report_text, title="[success]Import Complete[/]", border_style="success", expand=False)
+                    console.print(panel, justify="center")
+                except ValueError as ve:
+                    tui.show_msg("error", f"Date format error: {str(ve)}")
+                except Exception as e:
+                    tui.show_msg("error", f"Import failed: {str(e)}")
+                tui.get_input("Press Enter to continue...")
+                return
+
+main
         else:
             tui.show_msg("error", f"Unknown intent: {intent}")
 
@@ -553,6 +739,7 @@ def menu_7():
                 safe_ans = answer.replace("[", "\\[").replace("]", "\\]")
                 console.print(f"[cyan]Student (Qwen) SQL Çıktısı:[/] {safe_ans}")
 
+
                 success, result, _ = db.execute_ai_read_query(answer)
                 if not success:
                     error_msg = str(result)
@@ -602,6 +789,39 @@ def menu_7():
                     console.print("[success]Test Başarılı! (Özet Ok)[/success]")
                     ai.save_to_memory(q, summary, persona="analist")
 
+        final_sql = sql
+        passed = True
+
+        if not success:
+            error_msg = str(result)
+            with tui.create_spinner("Student failed. Oracle intervening...") as progress:
+                task_id = progress.add_task("Oracle intervening...", total=None)
+                fixed_sql, explanation = ai.ai_oracle_fallback(q, sql, error_msg)
+
+            if fixed_sql:
+                safe_fixed = fixed_sql.replace("[", "\\[").replace("]", "\\]")
+                console.print(f"[warning]Oracle Intervention: SQL Fixed[/warning] -> {safe_fixed}")
+                console.print(f"[info]Oracle Explanation:[/info] {explanation}")
+                o_success, o_result, _ = db.execute_ai_read_query(fixed_sql)
+                if o_success:
+                    final_sql = fixed_sql
+                else:
+                    passed = False
+                    console.print(f"[danger]Oracle also failed: {o_result}[/danger]")
+            else:
+                passed = False
+                console.print(f"[danger]Oracle failed to intervene: {explanation}[/danger]")
+        else:
+            console.print("[success]Test Passed![/success]")
+
+        if passed and final_sql:
+            saved = ai.save_to_memory(q, final_sql)
+            if saved:
+                console.print("[success]Memory Updated: New pattern learned![/success]")
+            else:
+                console.print("[muted]Memory Skipped: Duplicate or redundant pattern.[/muted]")
+main
+
         if idx < len(questions):
             with tui.create_spinner("API Şişmesini Önlemek İçin 4 Saniye Soğuma...") as progress:
                 task_id = progress.add_task("Soğuma...", total=None)
@@ -625,7 +845,7 @@ def main_menu():
                 ("7", "[red]Exit Program[/]")
             ]
             tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
-            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-7 OR type naturally):[/brand]")
+            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-7 OR type naturally) [/brand]")
 
             if choice == "1":
                 menu_1()
