@@ -99,6 +99,8 @@ ONLY return the SQL statement."""
 
         import datetime
         import json
+        import difflib
+
         today = datetime.date.today().isoformat()
 
         manifest = ""
@@ -108,9 +110,31 @@ ONLY return the SQL statement."""
         except:
             manifest = "Manifest missing."
 
+        # RAG Mimarisi: Geçmişte yaşadığımız tecrübelerden en benzer 3 tanesini bulup bağlama ekleyelim.
+        past_experiences = ""
+        try:
+            with open("memory_intent.json", "r") as f:
+                memories = json.load(f)
+
+            if memories:
+                queries = [m['query'] for m in memories]
+                # En çok benzeyen 3 sorguyu yakalayalım
+                matches = difflib.get_close_matches(user_prompt, queries, n=3, cutoff=0.1)
+
+                if matches:
+                    past_experiences = "\nÖğrenilen Geçmiş Tecrübeler:\n"
+                    for match in matches:
+                        for m in memories:
+                            if m['query'] == match:
+                                past_experiences += f"Kullanıcı: {m['query']}\nDoğru Çıktı: {m['sql']}\n\n"
+                                break
+        except Exception:
+            pass
+
         system_prompt = f"""{manifest}
 You are AILO, the Intent Router for the System.
 Today's date is: {today}.
+{past_experiences}
 
 Analyze the user's natural language input and output ONLY a valid JSON object matching this schema:
 {{
@@ -151,129 +175,21 @@ Rules:
             )
             output_text = response['choices'][0]['text'].strip()
 
-            # Cleanup markdown if model hallucinates it
-            if output_text.startswith("```json"):
-                output_text = output_text[7:]
-            if output_text.startswith("```"):
-                output_text = output_text[3:]
-            if output_text.endswith("```"):
-                output_text = output_text[:-3]
+            # Markdown temizliği
+            if output_text.startswith("```json"): output_text = output_text[7:]
+            if output_text.startswith("```"): output_text = output_text[3:]
+            if output_text.endswith("```"): output_text = output_text[:-3]
 
-            return json.loads(output_text.strip())
+            # Burada çökme riskine karşı try-except bloğuyla json parse deniyoruz
+            try:
+                return json.loads(output_text.strip())
+            except json.JSONDecodeError:
+                # Yerel model JSON'ı bozduysa Cloud Oracle yetişip toparlasın
+                return self.ai_intent_oracle_fallback(user_prompt, output_text.strip())
+
         except Exception as e:
             print(f"Error parsing intent: {e}")
             return {"intent": "unknown", "status": "incomplete", "ask_user": "I failed to parse your intent."}
-
-    def ai_oracle_fallback(self, user_prompt: str, bad_sql: str, sqlite_error: str) -> str:
-        import google.generativeai as genai
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return ""
-
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-
-            prompt = f"""Şema:
-table: records
-columns: id (INTEGER PRIMARY KEY), city_name (TEXT), aqi_value (REAL), timestamp (TEXT)
-
-Kullanıcı Sorusu: {user_prompt}
-Yerel modelin ürettiği bozuk SQL: {bad_sql}
-SQLite Hatası: {sqlite_error}
-
-Sadece düzeltilmiş ve çalışacak doğru SQL kodunu döndür. Hiçbir açıklama yapma. Sadece SQL kodu olsun."""
-
-            response = model.generate_content(prompt)
-            fixed_sql = response.text.strip()
-
-            # Cleanup markdown
-            if fixed_sql.startswith("```sql"):
-                fixed_sql = fixed_sql[6:]
-            if fixed_sql.startswith("```"):
-                fixed_sql = fixed_sql[3:]
-            if fixed_sql.endswith("```"):
-                fixed_sql = fixed_sql[:-3]
-
-            return fixed_sql.strip()
-        except Exception as e:
-            print(f"Oracle fallback error: {e}")
-            return ""
-
-
-    def is_memory_duplicate(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
-        import json
-        import difflib
-        filename = f"memory_{persona}.json"
-        try:
-            with open(filename, "r") as f:
-                mem_data = json.load(f)
-
-            for m in mem_data:
-                if m.get('sql', '').strip().upper() == new_sql.strip().upper():
-                    return True
-
-                ratio = difflib.SequenceMatcher(None, m.get('query', '').lower(), new_query.lower()).ratio()
-                if ratio > 0.85:
-                    return True
-            return False
-        except:
-            return False
-
-    def save_to_memory(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
-        import json
-        if self.is_memory_duplicate(new_query, new_sql, persona):
-            return False
-
-        filename = f"memory_{persona}.json"
-        memories = []
-        try:
-            with open(filename, "r") as f:
-                memories = json.load(f)
-        except:
-            pass
-
-        memories.append({"query": new_query, "sql": new_sql})
-        try:
-            with open(filename, "w") as f:
-                json.dump(memories, f, indent=4)
-            return True
-        except:
-            return False
-
-    def generate_training_questions(self, topic: str, count: int) -> list:
-        import google.generativeai as genai
-        import json
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return []
-
-        manifest = ""
-        try:
-            with open("ailo_manifest.yaml", "r") as f:
-                manifest = f.read()
-        except:
-            manifest = "Manifest missing."
-
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
-
-            prompt = f"""{manifest}
-
-You are the Teacher for the AILO system. Generate exactly {count} natural language questions to train the Text-to-SQL engine.
-The user requested the topic: '{topic}'.
-CRITICAL GUARDRAIL: If the topic is completely irrelevant to air quality or the database schema (e.g., cooking, games, nonsense), you MUST forcefully pivot the topic to an air quality context (e.g., 'impact of restaurants on air pollution') or simply generate standard AQI and city-based queries. Never step outside the schema bounds.
-Return a valid JSON array of strings containing the questions. Example: ["question 1", "question 2"]"""
-
-            response = model.generate_content(prompt)
-            data = json.loads(response.text.strip())
-            if isinstance(data, list):
-                return data
-            return []
-        except Exception as e:
-            print(f"Error generating questions: {e}")
-            return []
 
     def summarize_data(self, df_json: str) -> str:
         self._ensure_model_loaded()
@@ -294,3 +210,66 @@ Return a valid JSON array of strings containing the questions. Example: ["questi
             return response['choices'][0]['text'].strip()
         except Exception as e:
             return f"Error analyzing data: {e}"
+
+    def ai_intent_oracle_fallback(self, user_prompt: str, bad_output: str) -> dict:
+        import google.generativeai as genai
+        import os
+        import json
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return {"intent": "unknown", "status": "incomplete", "ask_user": "Oracle offline."}
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
+            prompt = f"""Kullanıcı cümlesi: {user_prompt}
+Yerel modelin ürettiği hatalı çıktı: {bad_output}
+
+Lütfen bu cümleyi sistem manifestomuza uygun olarak analiz et ve SADECE geçerli bir JSON objesi döndür.
+Beklenen alanlar: intent, parameters (city, aqi, vb.), status, missing_slot, ask_user.
+Hiçbir ek açıklama yapma."""
+
+            response = model.generate_content(prompt)
+            fixed_json_str = response.text.strip()
+
+            if fixed_json_str.startswith("```json"): fixed_json_str = fixed_json_str[7:]
+            if fixed_json_str.startswith("```"): fixed_json_str = fixed_json_str[3:]
+            if fixed_json_str.endswith("```"): fixed_json_str = fixed_json_str[:-3]
+
+            parsed_data = json.loads(fixed_json_str.strip())
+
+            # Hatayı düzeltmeyi başardık, bunu hafızaya kazıyalım ki bir daha yaşanmasın.
+            self.save_to_memory(user_prompt, json.dumps(parsed_data), persona="intent")
+            return parsed_data
+
+        except Exception as e:
+            print(f"Oracle intent fallback error: {e}")
+            return {"intent": "unknown", "status": "incomplete", "ask_user": "Oracle was unable to parse the intent."}
+
+    def ai_analyst_oracle_fallback(self, data_input: str, bad_output: str) -> str:
+        import google.generativeai as genai
+        import os
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return "Oracle offline."
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
+            prompt = f"""Veri: {data_input}
+Yerel modelin hatalı/boş özeti: {bad_output}
+
+Lütfen bu hava kalitesi verisini okuyup 2-3 cümlelik çok şık ve net bir yönetici özeti yaz. Markdown kullanma."""
+
+            response = model.generate_content(prompt)
+            fixed_summary = response.text.strip()
+
+            # Gelecekte aynı veride takılmaması için hafızaya kaydedelim
+            self.save_to_memory(data_input, fixed_summary, persona="analyst")
+            return fixed_summary
+        except Exception as e:
+            return f"Oracle analyst fallback error: {e}"

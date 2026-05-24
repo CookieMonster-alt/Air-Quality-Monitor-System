@@ -479,7 +479,13 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
 def menu_7():
     import time
     tui.clear_screen()
-    tui.show_msg("info", "Welcome to the Autonomous AI Training Room!")
+    tui.show_msg("info", "Evrensel Otonom Eğitim Merkezine Hoş Geldiniz (Universal Training Hub)!")
+
+    # Hangi departman?
+    dept_choice = tui.get_input("Hangi departmanı eğitiyoruz? (niyet / sql / analist) [Varsayılan: sql]")
+    dept = dept_choice.strip().lower() if dept_choice else "sql"
+    if dept not in ["niyet", "sql", "analist"]:
+        dept = "sql"
 
     options = [
         ("1", "Time/Date Analytics"),
@@ -488,8 +494,8 @@ def menu_7():
         ("4", "Custom Simulation (User Defined)"),
         ("5", "[red]Return to Menu[/]")
     ]
-    tui.show_menu("SELECT TRAINING THEME", options)
-    choice = tui.get_input("Choose Theme (1-5)")
+    tui.show_menu(f"EĞİTİM TEMASI SEÇ ({dept.upper()})", options)
+    choice = tui.get_input("Temayı Seç (1-5)")
 
     if choice == "5" or not choice:
         return
@@ -502,90 +508,107 @@ def menu_7():
     elif choice == "3":
         topic = "Edge Cases/Typos"
     elif choice == "4":
-        topic = tui.get_input("Enter your custom topic (e.g. 'industrial zones')")
+        topic = tui.get_input("Özel eğitim konusunu girin (Örn: 'Sanayi bölgeleri')")
         if not topic:
             return
     else:
         return
 
-    count_str = tui.get_input("How many questions for this loop? (Max 10)")
+    count_str = tui.get_input("Bu döngü için kaç soru üretelim? (Maks 10)")
     if not count_str or not count_str.isdigit():
         return
     count = min(int(count_str), 10)
 
     tui.clear_screen()
-    with tui.create_spinner("Booting AI Engines...") as progress:
-        task_id = progress.add_task("Booting AI Engines...", total=None)
+    with tui.create_spinner("Yapay Zeka Motorları Ateşleniyor...") as progress:
+        task_id = progress.add_task("AI Engines Booting...", total=None)
         ai = AIEngine()
         ai._ensure_model_loaded()
 
-    tui.show_msg("info", f"Generating {count} questions for topic: {topic}...")
+    tui.show_msg("info", f"{topic} konusu için {count} sentetik soru/durum üretiliyor...")
 
-    with tui.create_spinner("Oracle is creating syllabus...") as progress:
-        task_id = progress.add_task("Creating syllabus...", total=None)
-        questions = ai.generate_training_questions(topic, count)
+    with tui.create_spinner("Oracle (Gemini) müfredat hazırlıyor...") as progress:
+        task_id = progress.add_task("Müfredat...", total=None)
+        questions = ai.generate_training_questions(topic, count, department=dept)
 
     if not questions:
-        tui.show_msg("error", "Oracle failed to generate questions. Check API key or connection.")
-
+        tui.show_msg("error", "Oracle soru üretemedi. API anahtarını veya interneti kontrol et.")
+        tui.get_input("Geri dönmek için Enter'a bas")
         return
 
     from tui_engine import console
 
-    tui.show_msg("success", "Training syllabus created. Starting autonomous loop...")
+    tui.show_msg("success", "Eğitim müfredatı hazır. Otonom döngü başlıyor...")
     print("\n")
 
     for idx, q in enumerate(questions, 1):
         console.print(f"\n[bold magenta]--- Test {idx}/{len(questions)} ---[/]")
-        console.print(f"[info]Teacher (Gemini) asked:[/] {q}")
+        console.print(f"[info]Teacher (Gemini) Sordu/Verdi:[/] {q}")
 
-        with tui.create_spinner("Student (Qwen) is coding...") as progress:
-            task_id = progress.add_task("Coding...", total=None)
-            sql = ai.translate_text_to_sql(q)
+        with tui.create_spinner("Student (Qwen) çalışıyor...") as progress:
+            task_id = progress.add_task("Çözüyor...", total=None)
 
-        safe_sql = sql.replace("[", "\\[").replace("]", "\\]")
-        console.print(f"[cyan]Student (Qwen) SQL:[/] {safe_sql}")
+            if dept == "sql":
+                answer = ai.translate_text_to_sql(q)
+                safe_ans = answer.replace("[", "\\[").replace("]", "\\]")
+                console.print(f"[cyan]Student (Qwen) SQL Çıktısı:[/] {safe_ans}")
 
-        success, result, cursor_description = db.execute_ai_read_query(sql)
-
-        final_sql = sql
-        passed = True
-
-        if not success:
-            error_msg = str(result)
-            with tui.create_spinner("Student failed. Oracle intervening...") as progress:
-                task_id = progress.add_task("Oracle intervening...", total=None)
-                fixed_sql = ai.ai_oracle_fallback(q, sql, error_msg)
-
-            if fixed_sql:
-                safe_fixed = fixed_sql.replace("[", "\\[").replace("]", "\\]")
-                console.print(f"[warning]Oracle Intervention: SQL Fixed[/warning] -> {safe_fixed}")
-                o_success, o_result, _ = db.execute_ai_read_query(fixed_sql)
-                if o_success:
-                    final_sql = fixed_sql
+                success, result, _ = db.execute_ai_read_query(answer)
+                if not success:
+                    error_msg = str(result)
+                    with tui.create_spinner("Öğrenci çuvalladı. Oracle (Gemini) müdahale ediyor...") as prog:
+                        tid = prog.add_task("Düzeltiyor...", total=None)
+                        fixed_ans = ai.ai_oracle_fallback(q, answer, error_msg)
+                    if fixed_ans:
+                        safe_fixed = fixed_ans.replace("[", "\\[").replace("]", "\\]")
+                        console.print(f"[warning]Oracle Müdahalesi: SQL Düzeltildi[/warning] -> {safe_fixed}")
+                        # Kaydet
+                        ai.save_to_memory(q, fixed_ans, persona="router")
+                        console.print("[success]Hafıza Güncellendi: Oracle'dan yeni SQL kalıbı öğrenildi![/success]")
+                    else:
+                        console.print("[danger]Oracle da çözemedi.[/danger]")
                 else:
-                    passed = False
-                    console.print(f"[danger]Oracle also failed: {o_result}[/danger]")
-            else:
-                passed = False
-                console.print(f"[danger]Oracle failed to intervene.[/danger]")
-        else:
-            console.print("[success]Test Passed![/success]")
+                    console.print("[success]Test Başarılı! (SQL Geçerli)[/success]")
+                    saved = ai.save_to_memory(q, answer, persona="router")
+                    if saved:
+                        console.print("[success]Hafıza Güncellendi: Yeni pattern öğrenildi![/success]")
 
-        if passed and final_sql:
-            saved = ai.save_to_memory(q, final_sql)
-            if saved:
-                console.print("[success]Memory Updated: New pattern learned![/success]")
-            else:
-                console.print("[muted]Memory Skipped: Duplicate or redundant pattern.[/muted]")
+            elif dept == "niyet":
+                intent_data = ai.parse_intent(q)
+                import json
+                console.print(f"[cyan]Student (Qwen) Intent Çıktısı:[/] {intent_data.get('intent')}")
+                if intent_data.get("intent") == "unknown":
+                    with tui.create_spinner("Öğrenci niyeti anlayamadı. Oracle (Gemini) devreye giriyor...") as prog:
+                        tid = prog.add_task("Düzeltiyor...", total=None)
+                        # Qwen parse_intent içinde hata yakalarsa zaten otomatik çağırıp kaydeder, ama biz burada
+                        # yine de zorla oracla gönderebiliriz.
+                        fixed_data = ai.ai_intent_oracle_fallback(q, json.dumps(intent_data))
+                    console.print(f"[warning]Oracle Müdahalesi: Intent Bulundu[/warning] -> {fixed_data.get('intent')}")
+                    # ai_intent_oracle_fallback zaten kendi kaydeder.
+                else:
+                    console.print("[success]Test Başarılı! (Niyet Doğru Formatlı)[/success]")
+                    ai.save_to_memory(q, json.dumps(intent_data), persona="intent")
+
+            elif dept == "analist":
+                summary = ai.summarize_data(q)
+                console.print(f"[cyan]Student (Qwen) Özet Çıktısı:[/] {summary}")
+                if "Error analyzing" in summary or summary == "AI offline." or len(summary) < 5:
+                    with tui.create_spinner("Öğrenci özetleyemedi. Oracle (Gemini) yazıyor...") as prog:
+                        tid = prog.add_task("Yazıyor...", total=None)
+                        fixed_summary = ai.ai_analyst_oracle_fallback(q, summary)
+                    console.print(f"[warning]Oracle Müdahalesi: Özet Yazıldı[/warning] -> {fixed_summary}")
+                    # ai_analyst_oracle_fallback otomatik kaydeder
+                else:
+                    console.print("[success]Test Başarılı! (Özet Ok)[/success]")
+                    ai.save_to_memory(q, summary, persona="analist")
 
         if idx < len(questions):
-            with tui.create_spinner("Cooling down API for 4 seconds...") as progress:
-                task_id = progress.add_task("Cooling down...", total=None)
+            with tui.create_spinner("API Şişmesini Önlemek İçin 4 Saniye Soğuma...") as progress:
+                task_id = progress.add_task("Soğuma...", total=None)
                 console.print("[muted]Cooling down API for 4 seconds...[/muted]")
                 time.sleep(4)
 
-    tui.get_input("\n[bold white]Training Complete. Press Enter to return to menu.[/bold white]")
+    tui.get_input("\n[bold white]Eğitim Tamamlandı. Ana menüye dönmek için Enter'a basın.[/bold white]")
 
 def main_menu():
 
@@ -1056,7 +1079,7 @@ def delete_data_menu():
             tui.show_msg("info", "Action cancelled. Returning to menu...")
             return
 
-def tui.show_msg("info", "Use /backup, /export, or natural language to manage admin commands."):
+def menu_4():
     while True:
         try:
             tui.clear_screen()
