@@ -235,7 +235,206 @@ Menus:
 """
 
 
+
+def handle_query_intent(current_prompt, ai):
+    # SQL üretim ve insan döngülü (HITL) hata düzeltme sürecini yönetir.
+    while True:
+        with tui.create_spinner("AILO is generating SQL...") as progress:
+            task_id = progress.add_task("AILO is generating SQL...", total=None)
+            sql_query = ai.translate_text_to_sql(current_prompt)
+
+        if not sql_query:
+            tui.show_msg("error", "AILO failed to generate a query.")
+            tui.get_input("Press Enter to return to menu")
+            return
+
+        safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
+        tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
+
+        success, result, cursor_description = db.execute_ai_read_query(sql_query)
+        if not success:
+            error_msg = str(result)
+            with tui.create_spinner("Local AI failed. Reaching out to Cloud Oracle...") as progress:
+                task_id = progress.add_task("Cloud Oracle analyzing...", total=None)
+                fixed_sql = ai.ai_oracle_fallback(current_prompt, sql_query, "sql")
+
+            if fixed_sql:
+                safe_sql = fixed_sql.replace("[", "\\[").replace("]", "\\]")
+                tui.show_msg("warning", f"Oracle Fixed SQL: [bold white]{safe_sql}[/]")
+                o_success, o_result, o_cursor_description = db.execute_ai_read_query(fixed_sql)
+
+                if o_success:
+                    tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
+
+                    # Doğru SQL'i ileride kullanmak üzere otonom hafızamıza işliyoruz.
+                    ai.save_to_memory(current_prompt, fixed_sql, persona="router")
+
+                    sql_query = fixed_sql
+                    success = o_success
+                    result = o_result
+                    cursor_description = o_cursor_description
+                else:
+                    tui.show_msg("error", f"Cloud Oracle also failed: {o_result}")
+                    tui.get_input("Press Enter to return")
+                    return
+            else:
+                tui.show_msg("error", f"AI Error: {error_msg}")
+                tui.get_input("Press Enter to return")
+                return
+
+        if success:
+            if not result:
+                tui.show_msg("info", "Query returned 0 rows.")
+            else:
+                headers = [desc[0] for desc in cursor_description]
+                str_rows = []
+                has_aqi = 'aqi_value' in headers
+                aqi_idx = headers.index('aqi_value') if has_aqi else -1
+                if has_aqi:
+                    headers.extend(["Category", "Color"])
+                for row in result:
+                    str_row = [str(item) for item in row]
+                    if has_aqi:
+                        try:
+                            aqi_val = float(str_row[aqi_idx])
+                            cat = get_epa_category_raw(aqi_val)
+                            color_hex = get_epa_color_hex(aqi_val)
+                            str_row.append(cat)
+                            str_row.append(f"[{color_hex}]███[/]")
+                        except ValueError:
+                            str_row.extend(["Unknown", ""])
+                    str_rows.append(str_row)
+                tui.show_table("AILO Results", headers, str_rows, use_pager=False)
+
+                # Tablodaki veriyi diğer yapay zeka departmanlarının (Analist, Çizer) görebilmesi için RAM havuzuna atıyoruz.
+                import pandas as pd
+                try:
+                    clean_headers = headers[:len(result[0])]
+                    df = pd.DataFrame(result, columns=clean_headers)
+                    shared_blackboard['last_data'] = df
+                except Exception as e:
+                    pass
+        return
+
+def handle_insert_intent(params):
+    # Dışarıdan veya kullanıcının doğrudan verdiği hava kalitesi verisini sisteme dahil eder.
+    city = params.get("city")
+    if not city:
+        tui.show_msg("error", "Missing city name for insert operation.")
+        tui.get_input("Press Enter to continue")
+        return
+
+    city = city.title()
+    aqi = params.get("aqi")
+
+    if aqi is None:
+        tui.show_msg("info", f"AQI not provided for {city}. Fetching autonomously from WAQI...")
+        with tui.create_spinner(f"Fetching live AQI data for [cyan]{city}[/]...") as progress:
+            task_id = progress.add_task(f"Fetching...", total=None)
+            aqi = api_integration.get_station_aqi_by_name(city)
+
+        if aqi == 0.0:
+            tui.show_msg("error", f"Could not find live anchor data for {city}.")
+            tui.get_input("Press Enter to continue")
+            return
+        tui.show_msg("info", f"Found live WAQI: [bold white]{aqi}[/] ({get_epa_category(aqi)})")
+
+    new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=time_stamp())
+    is_new = db.add_record(new_record)
+    if is_new:
+        tui.show_msg("success", f"AQI data for {city} saved successfully!")
+    else:
+        tui.show_msg("info", f"AQI data for {city} at this timestamp already exists.")
+    tui.get_input("Press Enter to continue")
+
+def handle_delete_intent(params):
+    # İstenen şehre ait verileri dry-run yöntemiyle (önizlemeli) güvenli şekilde siler.
+    city = params.get("city")
+    if city:
+        city = city.title()
+        records = db.get_records_by_city(city)
+        if not records:
+            tui.show_msg("info", f"No records found for {city}.")
+            tui.get_input("Press Enter to continue...")
+            return
+
+        # Silmeden önce ne silineceğini gösteriyoruz
+        tui.clear_screen()
+        from data_manager import get_epa_category_raw, get_epa_color_hex
+        rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
+        tui.show_table(f"Preview: {city} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
+
+        choice = tui.get_input("[info]Enter IDs to delete (e.g., 1, 4, 5)[/]\n[danger]Type 'ALL' to delete all listed records[/]\n[accent]Type 'C' to Cancel[/]\n> ")
+        if not choice or choice.strip().upper() == 'C':
+            tui.show_msg("info", "Deletion cancelled.")
+        elif choice.strip().upper() == 'ALL':
+            deleted = db.delete_records(city_name=city)
+            tui.show_msg("success", f"Successfully deleted {deleted} records.")
+        else:
+            try:
+                ids_to_delete = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
+                if not ids_to_delete:
+                    raise ValueError()
+                deleted = db.delete_records_by_ids(ids_to_delete)
+                tui.show_msg("success", f"Successfully deleted {deleted} records.")
+            except ValueError:
+                tui.show_msg("error", "Invalid ID format. Operation cancelled.")
+    else:
+        tui.show_msg("warning", "Granular delete via AILO requires a specific city. Redirecting to admin menu.")
+        delete_data_menu()
+    tui.get_input("Press Enter to continue...")
+
+def handle_fetch_intent(params):
+    # WAQI geçmiş verilerini içeren devasa CSV dosyalarını sisteme yutar.
+    start_date = params.get("start_date")
+    end_date = params.get("end_date")
+    file_path = params.get("url")
+
+    if not file_path:
+        tui.show_msg("warning", "File path missing.")
+        file_path = tui.get_input("Please enter the path to the CSV file:")
+        if not file_path:
+            return
+    if not start_date:
+        start_date = tui.get_input("Please enter start date (YYYY-MM-DD):")
+    if not end_date:
+        end_date = tui.get_input("Please enter end date (YYYY-MM-DD):")
+
+    if not start_date or not end_date or not file_path:
+        tui.show_msg("error", "Missing required parameters for CSV extraction.")
+        tui.get_input("Press Enter to continue...")
+        return
+
+    import os
+    if not file_path.startswith("http") and not os.path.exists(file_path):
+        tui.show_msg("error", "Invalid or missing local file path.")
+        tui.get_input("Press Enter to continue...")
+        return
+
+    try:
+        import datetime
+        datetime.datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.datetime.strptime(end_date, "%Y-%m-%d")
+
+        with tui.create_spinner("Processing Devormous CSV Data...") as progress:
+            task_id = progress.add_task("Processing Data...", total=None)
+            stats = db.import_historical_csv_with_pandas(file_path, start_date, end_date)
+
+        from rich.panel import Panel
+        from tui_engine import console
+
+        report_text = f"[info]Total Rows Processed:[/] [bold white]{stats['total_processed']}[/]\n"
+        report_text += f"[info]New Records Inserted:[/] [success]{stats['newly_inserted']}[/]"
+        panel = Panel(report_text, title="[success]Import Complete[/]", border_style="success", expand=False)
+        console.print(panel, justify="center")
+    except ValueError as ve:
+        tui.show_msg("error", f"Date format error: {str(ve)}")
+    except Exception as e:
+        tui.show_msg("error", f"Import failed: {str(e)}")
+    tui.get_input("Press Enter to continue...")
+
 def orchestrate_intent(initial_prompt: str, ai_instance=None):
+    # Gelen doğal dil komutunun niyetini belirler ve ilgili alt fonksiyona yönlendirir.
     if ai_instance is None:
         ai = AIEngine()
         ai._ensure_model_loaded()
@@ -251,833 +450,46 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
 
         status = intent_data.get("status")
 
+        # Eğer kullanıcının cümlesi eksikse (örn: sadece 'sil' dediyse), ona hangi şehri sileceğini soralım.
         if status == "incomplete":
             ask_text = intent_data.get("ask_user", "Please provide more information.")
             tui.show_msg("warning", ask_text)
             user_reply = tui.get_input("Your response (or press Enter to cancel)")
             if not user_reply:
                 return
-            # Append context
+            # Diyalog geçmişini koruyarak modele geri besliyoruz
             current_prompt = current_prompt + " " + user_reply
             continue
 
-        # Status is complete
         intent = intent_data.get("intent")
         params = intent_data.get("parameters", {})
 
         if intent == "navigate":
             tui.show_msg("info", f"Navigating as requested...")
-
+            tui.get_input("Press Enter to continue")
             return
 
         elif intent == "query":
-            # HITL Self-Correction Loop
-            while True:
-                with tui.create_spinner("AILO is generating SQL...") as progress:
-                    task_id = progress.add_task("AILO is generating SQL...", total=None)
-                    sql_query = ai.translate_text_to_sql(current_prompt)
-
-                if not sql_query:
-                    tui.show_msg("error", "AILO failed to generate a query.")
-
-                    return
-
-                safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
-                tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
-
-                success, result, cursor_description = db.execute_ai_read_query(sql_query)
-                if not success:
-                    error_msg = str(result)
-                    with tui.create_spinner("Local AI failed. Reaching out to Cloud Oracle...") as progress:
-                        task_id = progress.add_task("Cloud Oracle analyzing...", total=None)
-                        fixed_sql = ai.ai_oracle_fallback(initial_prompt, sql_query, error_msg)
-
-                    if fixed_sql:
-                        safe_sql = fixed_sql.replace("[", "\\[").replace("]", "\\]")
-                        tui.show_msg("warning", f"Oracle Fixed SQL: [bold white]{safe_sql}[/]")
-                        o_success, o_result, o_cursor_description = db.execute_ai_read_query(fixed_sql)
-
-                        if o_success:
-                            tui.show_msg("success", "AILO encountered an error but autonomously fixed it via Cloud Oracle.")
-
-                            # Learn it to isolated memory
-                            ai.save_to_memory(current_prompt, fixed_sql, persona="router")
-
-                            sql_query = fixed_sql
-                            success = o_success
-                            result = o_result
-                            cursor_description = o_cursor_description
-                        else:
-                            tui.show_msg("error", f"Cloud Oracle also failed: {o_result}")
-
-                            return
-                    else:
-                        tui.show_msg("error", f"AI Error: {error_msg}")
-
-                        return
-
-                if success:
-                    # Successful query
-
-                    if not result:
-                        tui.show_msg("info", "Query returned 0 rows.")
-                    else:
-                        headers = [desc[0] for desc in cursor_description]
-                        str_rows = []
-                        has_aqi = 'aqi_value' in headers
-                        aqi_idx = headers.index('aqi_value') if has_aqi else -1
-                        if has_aqi:
-                            headers.extend(["Category", "Color"])
-                        for row in result:
-                            str_row = [str(item) for item in row]
-                            if has_aqi:
-                                try:
-                                    aqi_val = float(str_row[aqi_idx])
-                                    cat = get_epa_category_raw(aqi_val)
-                                    color_hex = get_epa_color_hex(aqi_val)
-                                    str_row.append(cat)
-                                    str_row.append(f"[{color_hex}]███[/]")
-                                except ValueError:
-                                    str_row.extend(["Unknown", ""])
-                            str_rows.append(str_row)
-                        tui.show_table("AILO Results", headers, str_rows, use_pager=False)
-                    # Write to Shared Blackboard for Analyst
-                    import pandas as pd
-                    try:
-                        clean_headers = headers[:len(result[0])]
-                        df = pd.DataFrame(result, columns=clean_headers)
-                        shared_blackboard['last_data'] = df
-                    except Exception as e:
-                        pass
-
-                return
+            handle_query_intent(current_prompt, ai)
+            return
 
         elif intent == "insert":
-            city = params.get("city")
-            if not city:
-                tui.show_msg("error", "Missing city name for insert operation.")
-
-                return
-
-            city = city.title()
-            aqi = params.get("aqi")
-
-            if aqi is None:
-                tui.show_msg("info", f"AQI not provided for {city}. Fetching autonomously from WAQI...")
-                with tui.create_spinner(f"Fetching live AQI data for [cyan]{city}[/]...") as progress:
-                    task_id = progress.add_task(f"Fetching...", total=None)
-                    aqi = api_integration.get_station_aqi_by_name(city)
-
-                if aqi == 0.0:
-                    tui.show_msg("error", f"Could not find live anchor data for {city}.")
-
-                    return
-                tui.show_msg("info", f"Found live WAQI: [bold white]{aqi}[/] ({get_epa_category(aqi)})")
-
-            new_record = CityRecord(city_name=city, aqi_value=float(aqi), timestamp=time_stamp())
-            is_new = db.add_record(new_record)
-            if is_new:
-                tui.show_msg("success", f"AQI data for {city} saved successfully!")
-            else:
-                tui.show_msg("info", f"AQI data for {city} at this timestamp already exists.")
-
+            handle_insert_intent(params)
             return
 
         elif intent == "delete":
-            city = params.get("city")
-            if city:
-                city = city.title()
-                records = db.get_records_by_city(city)
-                if not records:
-                    tui.show_msg("info", f"No records found for {city}.")
-
-                    return
-                # Show Preview Table
-                tui.clear_screen()
-                rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
-                tui.show_table(f"Preview: {city} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
-
-                choice = tui.get_input("[info]Enter IDs to delete (e.g., 1, 4, 5)[/]\n[danger]Type 'ALL' to delete all listed records[/]\n[accent]Type 'C' to Cancel[/]\n> ")
-                if not choice or choice.strip().upper() == 'C':
-                    tui.show_msg("info", "Deletion cancelled.")
-                elif choice.strip().upper() == 'ALL':
-                    deleted = db.delete_records(city_name=city)
-                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
-                else:
-                    try:
-                        ids_to_delete = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
-                        if not ids_to_delete:
-                            raise ValueError()
-                        deleted = db.delete_records_by_ids(ids_to_delete)
-                        tui.show_msg("success", f"Successfully deleted {deleted} records.")
-                    except ValueError:
-                        tui.show_msg("error", "Invalid ID format. Operation cancelled.")
-            else:
-                # Without city, let's just abort to be safe, or redirect to menu_4
-                tui.show_msg("warning", "Granular delete via AILO requires a specific city. Redirecting to admin menu.")
-                tui.show_msg("info", "Use /backup, /export, or natural language to manage admin commands.")
-
+            handle_delete_intent(params)
             return
 
         elif intent == "fetch_data":
-            # ETL Historical CSV
-            start_date = params.get("start_date")
-            end_date = params.get("end_date")
-            file_path = params.get("url")
-
-            # The AI might not ask effectively for URL since it's an abstract param
-            if not file_path:
-                tui.show_msg("warning", "File path missing.")
-                file_path = tui.get_input("Please enter the path to the CSV file:")
-                if not file_path:
-                    return
-            if not start_date:
-                start_date = tui.get_input("Please enter start date (YYYY-MM-DD):")
-            if not end_date:
-                end_date = tui.get_input("Please enter end date (YYYY-MM-DD):")
-
-            if not start_date or not end_date or not file_path:
-                tui.show_msg("error", "Missing required parameters for CSV extraction.")
-
-                return
-
-            if not file_path.startswith("http") and not os.path.exists(file_path):
-                tui.show_msg("error", "Invalid or missing local file path.")
-
-                return
-
-            try:
-                import datetime
-                datetime.datetime.strptime(start_date, "%Y-%m-%d")
-                datetime.datetime.strptime(end_date, "%Y-%m-%d")
-
-                with tui.create_spinner("Processing Devormous CSV Data...") as progress:
-                    task_id = progress.add_task("Processing Data...", total=None)
-                    stats = db.import_historical_csv_with_pandas(file_path, start_date, end_date)
-
-                from rich.panel import Panel
-                from tui_engine import console
-
-                report_text = f"[info]Total Rows Processed:[/] [bold white]{stats['total_processed']}[/]\n"
-                report_text += f"[info]New Records Inserted:[/] [success]{stats['newly_inserted']}[/]"
-                panel = Panel(report_text, title="[success]Import Complete[/]", border_style="success", expand=False)
-                console.print(panel, justify="center")
-            except ValueError as ve:
-                tui.show_msg("error", f"Date format error: {str(ve)}")
-            except Exception as e:
-                tui.show_msg("error", f"Import failed: {str(e)}")
-
+            handle_fetch_intent(params)
             return
 
         else:
             tui.show_msg("error", f"Unknown intent: {intent}")
-
+            tui.get_input("Press Enter to continue...")
             return
 
-
-
-def menu_7():
-    import time
-    tui.clear_screen()
-    tui.show_msg("info", "Evrensel Otonom Eğitim Merkezine Hoş Geldiniz (Universal Training Hub)!")
-
-    # Hangi departman?
-    dept_choice = tui.get_input("Hangi departmanı eğitiyoruz? (niyet / sql / analist) [Varsayılan: sql]")
-    dept = dept_choice.strip().lower() if dept_choice else "sql"
-    if dept not in ["niyet", "sql", "analist"]:
-        dept = "sql"
-
-    options = [
-        ("1", "Time/Date Analytics"),
-        ("2", "Complex Aggregations"),
-        ("3", "Edge Cases/Typos"),
-        ("4", "Custom Simulation (User Defined)"),
-        ("5", "[red]Return to Menu[/]")
-    ]
-    tui.show_menu(f"EĞİTİM TEMASI SEÇ ({dept.upper()})", options)
-    choice = tui.get_input("Temayı Seç (1-5)")
-
-    if choice == "5" or not choice:
-        return
-
-    topic = ""
-    if choice == "1":
-        topic = "Time/Date Analytics"
-    elif choice == "2":
-        topic = "Complex Aggregations"
-    elif choice == "3":
-        topic = "Edge Cases/Typos"
-    elif choice == "4":
-        topic = tui.get_input("Özel eğitim konusunu girin (Örn: 'Sanayi bölgeleri')")
-        if not topic:
-            return
-    else:
-        return
-
-    count_str = tui.get_input("Bu döngü için kaç soru üretelim? (Maks 10)")
-    if not count_str or not count_str.isdigit():
-        return
-    count = min(int(count_str), 10)
-
-    tui.clear_screen()
-    with tui.create_spinner("Yapay Zeka Motorları Ateşleniyor...") as progress:
-        task_id = progress.add_task("AI Engines Booting...", total=None)
-        ai = AIEngine()
-        ai._ensure_model_loaded()
-
-    tui.show_msg("info", f"{topic} konusu için {count} sentetik soru/durum üretiliyor...")
-
-    with tui.create_spinner("Oracle (Gemini) müfredat hazırlıyor...") as progress:
-        task_id = progress.add_task("Müfredat...", total=None)
-        questions = ai.generate_training_questions(topic, count, department=dept)
-
-    if not questions:
-        tui.show_msg("error", "Oracle soru üretemedi. API anahtarını veya interneti kontrol et.")
-        tui.get_input("Geri dönmek için Enter'a bas")
-        return
-
-    from tui_engine import console
-
-    tui.show_msg("success", "Eğitim müfredatı hazır. Otonom döngü başlıyor...")
-    print("\n")
-
-    for idx, q in enumerate(questions, 1):
-        console.print(f"\n[bold magenta]--- Test {idx}/{len(questions)} ---[/]")
-        console.print(f"[info]Teacher (Gemini) Sordu/Verdi:[/] {q}")
-
-        with tui.create_spinner("Student (Qwen) çalışıyor...") as progress:
-            task_id = progress.add_task("Çözüyor...", total=None)
-
-            if dept == "sql":
-                answer = ai.translate_text_to_sql(q)
-                safe_ans = answer.replace("[", "\\[").replace("]", "\\]")
-                console.print(f"[cyan]Student (Qwen) SQL Çıktısı:[/] {safe_ans}")
-
-                success, result, _ = db.execute_ai_read_query(answer)
-                if not success:
-                    error_msg = str(result)
-                    with tui.create_spinner("Öğrenci çuvalladı. Oracle (Gemini) müdahale ediyor...") as prog:
-                        tid = prog.add_task("Düzeltiyor...", total=None)
-                        fixed_ans = ai.ai_oracle_fallback(q, answer, error_msg)
-                    if fixed_ans:
-                        safe_fixed = fixed_ans.replace("[", "\\[").replace("]", "\\]")
-                        console.print(f"[warning]Oracle Müdahalesi: SQL Düzeltildi[/warning] -> {safe_fixed}")
-                        # Kaydet
-                        ai.save_to_memory(q, fixed_ans, persona="router")
-                        console.print("[success]Hafıza Güncellendi: Oracle'dan yeni SQL kalıbı öğrenildi![/success]")
-                    else:
-                        console.print("[danger]Oracle da çözemedi.[/danger]")
-                else:
-                    console.print("[success]Test Başarılı! (SQL Geçerli)[/success]")
-                    saved = ai.save_to_memory(q, answer, persona="router")
-                    if saved:
-                        console.print("[success]Hafıza Güncellendi: Yeni pattern öğrenildi![/success]")
-
-            elif dept == "niyet":
-                intent_data = ai.parse_intent(q)
-                import json
-                console.print(f"[cyan]Student (Qwen) Intent Çıktısı:[/] {intent_data.get('intent')}")
-                if intent_data.get("intent") == "unknown":
-                    with tui.create_spinner("Öğrenci niyeti anlayamadı. Oracle (Gemini) devreye giriyor...") as prog:
-                        tid = prog.add_task("Düzeltiyor...", total=None)
-                        # Qwen parse_intent içinde hata yakalarsa zaten otomatik çağırıp kaydeder, ama biz burada
-                        # yine de zorla oracla gönderebiliriz.
-                        fixed_data = ai.ai_intent_oracle_fallback(q, json.dumps(intent_data))
-                    console.print(f"[warning]Oracle Müdahalesi: Intent Bulundu[/warning] -> {fixed_data.get('intent')}")
-                    # ai_intent_oracle_fallback zaten kendi kaydeder.
-                else:
-                    console.print("[success]Test Başarılı! (Niyet Doğru Formatlı)[/success]")
-                    ai.save_to_memory(q, json.dumps(intent_data), persona="intent")
-
-            elif dept == "analist":
-                summary = ai.summarize_data(q)
-                console.print(f"[cyan]Student (Qwen) Özet Çıktısı:[/] {summary}")
-                if "Error analyzing" in summary or summary == "AI offline." or len(summary) < 5:
-                    with tui.create_spinner("Öğrenci özetleyemedi. Oracle (Gemini) yazıyor...") as prog:
-                        tid = prog.add_task("Yazıyor...", total=None)
-                        fixed_summary = ai.ai_analyst_oracle_fallback(q, summary)
-                    console.print(f"[warning]Oracle Müdahalesi: Özet Yazıldı[/warning] -> {fixed_summary}")
-                    # ai_analyst_oracle_fallback otomatik kaydeder
-                else:
-                    console.print("[success]Test Başarılı! (Özet Ok)[/success]")
-                    ai.save_to_memory(q, summary, persona="analist")
-
-        if idx < len(questions):
-            with tui.create_spinner("API Şişmesini Önlemek İçin 4 Saniye Soğuma...") as progress:
-                task_id = progress.add_task("Soğuma...", total=None)
-                console.print("[muted]Cooling down API for 4 seconds...[/muted]")
-                time.sleep(4)
-
-    tui.get_input("\n[bold white]Eğitim Tamamlandı. Ana menüye dönmek için Enter'a basın.[/bold white]")
-
-def main_menu():
-
-    while True:
-        try:
-            tui.clear_screen()
-            options = [
-                ("1", "Data Entry Menu"),
-                ("2", "Search Menu"),
-                ("3", "Analytics & Reports"),
-                ("4", "Admin Menu"),
-                ("5", "Fetch Historical Data"),
-                ("6", "Autonomous AI Training Room"),
-                ("7", "[red]Exit Program[/]")
-            ]
-            tui.show_menu("AIR QUALITY MONITOR SYSTEM", options)
-            choice = tui.get_input("[brand]AILO Command Prompt (Select 1-7 OR type naturally):[/brand]")
-
-            if choice == "1":
-                menu_1()
-            elif choice == "2":
-                menu_2()
-            elif choice == "3":
-                menu_3()
-            elif choice == "4":
-                tui.show_msg("info", "Use /backup, /export, or natural language to manage admin commands.")
-            elif choice == "5":
-                menu_5()
-            elif choice == "6":
-                menu_7()
-            elif choice == "7":
-                exit_choice = tui.get_input("Do you want to Exit the program? (Y/N)", choices=["Y", "N", "y", "n"])
-                if exit_choice.upper() == "Y":
-                    tui.show_msg("info", "You logged out!!")
-                    break
-                elif exit_choice.upper() == "N":
-                    continue
-            elif choice == "":
-                break
-            else:
-                # Natural language omnibar flow
-                orchestrate_intent(choice)
-        except KeyboardInterrupt:
-            tui.show_msg("info", "Action cancelled. Returning to main menu...")
-
-            continue
-            
-
-
-# Main Menu Ends Here
-# |---------------------------------------------------------------------------|
-
-
-# |---------------------------------------------------------------------------|
-# Data Entry Menu Starts Here
-def menu_1():
-    while True:
-        try:
-            tui.clear_screen()
-            all_records = db.get_all_records()
-            cities_from_db = list(set([record.city_name for record in all_records]))
-            cities_from_db.sort()
-
-            options = []
-            for idx, city in enumerate(cities_from_db, 1):
-                options.append((str(idx), city))
-
-            add_new_city_option = len(cities_from_db) + 1
-            options.append((str(add_new_city_option), "[blue]Add New City[/]"))
-
-            tui.show_menu("DATA ENTRY MENU", options)
-            city_number_input = tui.get_input("Choose a city number, or type 'exit'")
-
-            if city_number_input.lower() == "exit" or city_number_input == "":
-                return
-
-            city_name = None
-            if city_number_input.isdigit():
-                city_number = int(city_number_input)
-                if 0 < city_number <= len(cities_from_db):
-                    city_name = cities_from_db[city_number - 1]
-                elif city_number == add_new_city_option:
-                    while True:
-                        raw_city_input = tui.get_input("Enter the name of the new city to add:")
-                        clean_city_input = raw_city_input.strip()
-
-                        if clean_city_input == "":
-                            city_name = None
-                            break
-
-                        if clean_city_input.isdigit():
-                            tui.show_msg("error", "City name cannot be only numbers. Please try again.")
-                            continue
-
-                        new_city_name = clean_city_input.title()
-
-                        if new_city_name in cities_from_db:
-                            tui.show_msg("info", f"{new_city_name} already exists in the list")
-                            break
-                        else:
-                            city_name = new_city_name
-                            break
-            if city_name:
-                while True:
-                    aqi_input = tui.get_input(f"Enter air quality index for [green]{city_name}[/]:")
-
-                    if aqi_input == "":
-                        return
-
-                    try:
-                        aqi = float(aqi_input)
-                        if aqi < 0 or aqi > 500:
-                            tui.show_msg("error", "AQI must be between 0 and 500. Please try again.")
-                            continue
-
-                        new_record = CityRecord(city_name=city_name, aqi_value=aqi, timestamp=time_stamp())
-                        is_new = db.add_record(new_record)
-                        if is_new:
-                            tui.show_msg("success", f"AQI data for {city_name} saved successfully!")
-                        else:
-                            tui.show_msg("info", f"AQI data for {city_name} at this timestamp already exists.")
-
-                        continue_choice = tui.get_input(f"Do you want to add more data to {city_name}? (Y/N)", choices=["Y", "N", "y", "n"])
-                        if continue_choice.upper() == "N" or continue_choice == "":
-                            break
-                    except ValueError:
-                        tui.show_msg("error", "Invalid AQI. Please enter a number between 0 and 500.")
-            else:
-                tui.show_msg("error", "Invalid choice.")
-                tui.get_input("Press Enter to try again")
-
-        except KeyboardInterrupt:
-            tui.show_msg("info", "Action cancelled. Returning to menu...")
-
-            return
-
-
-# Data Entry Menu End Here
-# |---------------------------------------------------------------------------|
-
-
-# |---------------------------------------------------------------------------|
-# Search Menu Start Here
-def get_city_selection(prompt_text: str) -> str:
-    """
-    Centralized smart search engine.
-    Uses DatabaseManager.find_city_matches to provide partial or fuzzy matched suggestions.
-    """
-    query = tui.get_input(prompt_text)
-    if not query:
-        return ""
-
-    matches, is_fuzzy = db.find_city_matches(query)
-
-    if not matches:
-        return query.title()
-
-    if len(matches) == 1 and matches[0].lower() == query.strip().lower():
-        return matches[0]
-
-    tui.clear_screen()
-    if is_fuzzy:
-        tui.show_msg("warning", "Exact match not found. Showing closest suggestions:")
-
-    rows = [[str(idx), city] for idx, city in enumerate(matches, 1)]
-    tui.show_table("Select a City", ["ID", "City Name"], rows)
-
-    choice = tui.get_input("[info]Multiple cities found. Select ID to proceed, or press Enter to cancel[/]")
-    if not choice or not choice.isdigit():
-        return ""
-
-    idx = int(choice) - 1
-    if 0 <= idx < len(matches):
-        return matches[idx]
-
-    return ""
-
-def menu_2():
-    while True:
-        try:
-            tui.clear_screen()
-            all_records = db.get_all_records()
-            cities_from_db = list(set([record.city_name for record in all_records]))
-
-            tui.show_menu("SEARCH MENU", []) # Just for title consistency
-            city_name = get_city_selection("Enter city name to search (Local or WAQI Live)")
-            if not city_name:
-                return
-
-            # Step 1: WAQI API Live Search
-            stations = api_integration.search_city_stations(city_name)
-            if stations:
-                tui.show_msg("info", f"Found {len(stations)} live stations for {city_name} via WAQI API")
-
-                st_options = []
-                for idx, st in enumerate(stations[:5]):
-                    st_options.append((str(idx + 1), st['station']['name']))
-
-                tui.show_menu("Live WAQI Stations", st_options)
-
-                choice = tui.get_input(f"Choose a station (1-{min(5, len(stations))}) or press Enter to skip to local DB")
-                if choice.isdigit() and 1 <= int(choice) <= len(stations):
-                    selected_st = stations[int(choice) - 1]
-                    uid = selected_st['uid']
-
-                    with tui.create_spinner(f"Fetching live AQI data for [cyan]{selected_st['station']['name']}[/]...") as progress:
-                        st_data = api_integration.get_station_aqi(uid)
-
-                    live_aqi = st_data.get("aqi")
-                    if live_aqi and isinstance(live_aqi, (int, float)) or (isinstance(live_aqi, str) and live_aqi.isdigit()):
-                        aqi_val = float(live_aqi)
-
-                        # Save to local DB
-                        new_record = CityRecord(city_name=city_name, aqi_value=aqi_val, timestamp=time_stamp())
-                        db.add_record(new_record)
-
-                        tui.show_msg("info", f"Live WAQI: [bold white]{aqi_val}[/] ({get_epa_category(aqi_val)})")
-                        tui.show_msg("success", "Live data saved to local database.")
-                    else:
-                        tui.show_msg("error", "No valid AQI data available for this station currently.")
-
-                    tui.get_input("Press Enter to return to the main menu!")
-                    return
-            else:
-                tui.show_msg("info", f"No live WAQI stations found for {city_name}. Searching local DB...")
-
-            # Step 2: Local DB Search Fallback
-            if city_name in cities_from_db:
-                tui.show_msg("success", f"{city_name} is found in the local database!")
-                choice = tui.get_input("Do you want to see the AQI data? (Y/N)", choices=["Y", "N", "y", "n"])
-
-                if choice.upper() == "Y":
-                    records = [record for record in all_records if record.city_name == city_name]
-                    if not records:
-                        tui.show_msg("info", f"No AQI records found for {city_name}.")
-                    else:
-                        rows = [[city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
-                        tui.show_table(f"Records for {city_name}", ['City', 'AQI', 'Category', 'Color', 'Timestamp'], rows)
-                        tui.get_input("Press Enter to return to the main menu!")
-            else:
-                tui.show_msg("error", f"{city_name} is not found in the local database!")
-                tui.get_input("Press Enter to return to the main menu!")
-            return
-        except KeyboardInterrupt:
-            tui.show_msg("info", "Action cancelled. Returning to menu...")
-
-            return
-
-
-# Search Menu End Here
-# |---------------------------------------------------------------------------|
-
-
-# |---------------------------------------------------------------------------|
-# Reports and Analysis Menu Start Here
-def menu_3():
-    while True:
-        try:
-            tui.clear_screen()
-            options = [
-                ("1", "Display from highest AQI data"),
-                ("2", "Display from lowest AQI data"),
-                ("3", "Display from city name (A-Z)"),
-                ("4", "Display from city name (Z-A)"),
-                ("5", "Executive Analytics Summary"),
-                ("6", "[magenta]Run AI Engine Prediction[/]"),
-                ("7", "[red]Return main menu[/]")
-            ]
-            tui.show_menu("ANALYTICS & REPORTS", options)
-            user_choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
-
-            if user_choice == "":
-                return
-            elif user_choice == "1":
-                tui.clear_screen()
-                sort_by_highest_aqi()
-                tui.get_input("Press Enter to return to the main menu")
-                continue
-            elif user_choice == "2":
-                tui.clear_screen()
-                sort_by_lowest_aqi()
-                tui.get_input("Press Enter to return to the main menu")
-                continue
-            elif user_choice == "3":
-                tui.clear_screen()
-                sort_by_city_name_az()
-                tui.get_input("Press Enter to return to the main menu")
-                continue
-            elif user_choice == "4":
-                tui.clear_screen()
-                sort_by_city_name_za()
-                tui.get_input("Press Enter to return to the main menu")
-                continue
-            elif user_choice == "5":
-                tui.clear_screen()
-
-                avg_aqi = db.get_average_aqi()
-                highest_city = db.get_city_with_highest_aqi()
-
-                tui.show_msg("info", f"Average System AQI: {avg_aqi:.2f} ({get_epa_category(avg_aqi)})")
-
-                if highest_city:
-                    tui.show_msg("error", f"Highest Pollution: {highest_city[0]} - {highest_city[1]} ({get_epa_category(highest_city[1])})")
-                else:
-                    tui.show_msg("info", "Highest Pollution: No records available")
-
-                tui.get_input("Press Enter to return to the Reports menu")
-                continue
-            elif user_choice == "6":
-                tui.clear_screen()
-                city_name = get_city_selection("Please enter city name for AI Prediction")
-                if not city_name:
-                    continue
-
-                tui.show_msg("info", f"Running AI Analysis on {city_name}...")
-                predicted_aqi = ai_engine.predict_next_aqi(city_name)
-
-                if predicted_aqi == 0.0:
-                    tui.show_msg("error", "Insufficient data to run prediction.")
-                else:
-                    decision = ai_engine.evaluate_prediction(predicted_aqi)
-
-                    # Print dynamically
-                    tui.show_msg("info", f"Predicted AQI: [bold white]{predicted_aqi}[/] ({get_epa_category(predicted_aqi)})")
-
-                    if "NORMAL" in decision:
-                        tui.show_msg("success", decision)
-                    else:
-                        tui.show_msg("error", decision)
-
-                    # Save AI state
-                    db.add_prediction(
-                        city_name=city_name,
-                        predicted_aqi=predicted_aqi,
-                        prediction_date=time_stamp(),
-                        target_date=time_stamp(), # For demo purposes, we project next current instance
-                        decision_made=decision
-                    )
-
-                tui.get_input("Press Enter to return to the Reports menu")
-                continue
-            elif user_choice == "7":
-                break
-            else:
-                tui.show_msg("error", "Invalid choice. Please try again!!")
-
-                continue
-        except KeyboardInterrupt:
-            tui.show_msg("info", "Action cancelled. Returning to menu...")
-
-            return
-
-
-# Reports and Analysis Menu End Here
-# |---------------------------------------------------------------------------|
-
-
-# |---------------------------------------------------------------------------|
-# Admin Menu Sarts Here
-def delete_data_menu():
-    while True:
-        try:
-            tui.clear_screen()
-            options = [
-                ("1", "Delete by City"),
-                ("2", "Delete by Date Range"),
-                ("3", "[danger]Factory Reset (Delete ALL Data)[/]"),
-                ("4", "[red]Return Admin Menu[/]")
-            ]
-            tui.show_menu("DELETE DATA", options)
-            user_choice = tui.get_input("[brand]AILO Command Prompt (Select 1-6 OR type naturally):[/brand]")
-
-            if user_choice == "" or user_choice == "4":
-                return
-
-            elif user_choice == "1":
-                city_name = get_city_selection("Enter city name to delete")
-                if not city_name:
-                    continue
-
-                records = db.get_records_by_city(city_name)
-                if not records:
-                    tui.show_msg("info", f"No records found for {city_name}.")
-
-                    continue
-
-                # Show Preview Table
-                tui.clear_screen()
-                rows = [[str(r.id), r.city_name, str(r.aqi_value), get_epa_category_raw(r.aqi_value), f"[{get_epa_color_hex(r.aqi_value)}]███[/]", r.timestamp] for r in records]
-                tui.show_table(f"Preview: {city_name} Records", ['ID', 'City', 'AQI', 'Category', 'Color', 'Timestamp'], rows, use_pager=True)
-
-                choice = tui.get_input("[info]Enter IDs to delete (e.g., 1, 4, 5)[/]\n[danger]Type 'ALL' to delete all listed records[/]\n[accent]Type 'C' to Cancel[/]\n> ")
-
-                if not choice or choice.strip().upper() == 'C':
-                    tui.show_msg("info", "Deletion cancelled.")
-
-                    continue
-                elif choice.strip().upper() == 'ALL':
-                    deleted = db.delete_records(city_name=city_name)
-                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
-
-                    continue
-                else:
-                    # Granular Deletion
-                    try:
-                        ids_to_delete = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()]
-                        if not ids_to_delete:
-                            raise ValueError()
-
-                        deleted = db.delete_records_by_ids(ids_to_delete)
-                        tui.show_msg("success", f"Successfully deleted {deleted} records.")
-                    except ValueError:
-                        tui.show_msg("error", "Invalid ID format. Operation cancelled.")
-
-
-
-            elif user_choice == "2":
-                start_date = tui.get_input("Enter Start Date (YYYY-MM-DD)")
-                end_date = tui.get_input("Enter End Date (YYYY-MM-DD)")
-                if not start_date or not end_date:
-                    continue
-                try:
-                    datetime.datetime.strptime(start_date, "%Y-%m-%d")
-                    datetime.datetime.strptime(end_date, "%Y-%m-%d")
-                except ValueError:
-                    tui.show_msg("error", "Invalid date format.")
-
-                    continue
-
-                count = db.count_records(start_date=start_date, end_date=end_date)
-                if count == 0:
-                    tui.show_msg("info", f"No records found between {start_date} and {end_date}.")
-
-                    continue
-
-                tui.show_msg("warning", f"Uyarı: Bu tarih aralığına ait {count} kayıt bulundu.")
-                confirm = tui.get_input("[danger]Are you sure? Type 'DELETE' to confirm deletion, or press Enter to cancel[/]")
-
-                if confirm.strip().upper() == "DELETE":
-                    deleted = db.delete_records(start_date=start_date, end_date=end_date)
-                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
-                else:
-                    tui.show_msg("info", "Deletion cancelled.")
-
-
-            elif user_choice == "3":
-                count = db.count_records(count_all=True)
-                if count == 0:
-                    tui.show_msg("info", "Database is already empty.")
-
-                    continue
-
-                tui.show_msg("warning", f"Uyarı: Veritabanındaki tüm ({count}) kayıtlar silinecek!")
-                confirm = tui.get_input("[danger]Are you sure? Type 'DELETE ALL' to confirm deletion, or press Enter to cancel[/]")
-
-                if confirm.strip().upper() == "DELETE ALL":
-                    deleted = db.delete_records(delete_all=True)
-                    tui.show_msg("success", f"Successfully deleted {deleted} records.")
-                else:
-                    tui.show_msg("info", "Deletion cancelled.")
-
-
-            else:
-                tui.show_msg("error", "Invalid choice!")
-
-
-        except KeyboardInterrupt:
-            tui.show_msg("info", "Action cancelled. Returning to menu...")
-            return
 
 def delete_data_menu():
     while True:
