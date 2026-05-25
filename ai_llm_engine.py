@@ -12,6 +12,33 @@ class AIEngine:
         self.model_id = "Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF"
         self.filename = "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
         self.llm = None
+        self._manifest_cache = None
+        self._memory_cache = {}
+
+    def _get_manifest(self) -> str:
+        # Önbellekte manifesto varsa direkt onu döndür, diski yorma
+        if self._manifest_cache is not None:
+            return self._manifest_cache
+        try:
+            with open("ailo_manifest.yaml", "r") as f:
+                self._manifest_cache = f.read()
+        except:
+            self._manifest_cache = "Manifest missing."
+        return self._manifest_cache
+
+    def _get_memory(self, persona: str) -> list:
+        import json
+        # İlgili kişiliğin hafızası RAM'de varsa diski meşgul etmeyelim
+        if persona in self._memory_cache:
+            return self._memory_cache[persona]
+        try:
+            with open(f"memory_{persona}.json", "r") as f:
+                mem_data = json.load(f)
+                self._memory_cache[persona] = mem_data
+                return mem_data
+        except:
+            self._memory_cache[persona] = []
+            return []
 
     def _ensure_model_loaded(self):
         if not AI_AVAILABLE:
@@ -37,24 +64,15 @@ class AIEngine:
         if not self.llm:
             return ""
 
-        import json
-        manifest = ""
+        manifest = self._get_manifest()
         memory = ""
-        try:
-            with open("ailo_manifest.yaml", "r") as f:
-                manifest = f.read()
-        except:
-            manifest = "Manifest missing."
 
-        try:
-            with open("memory_router.json", "r") as f:
-                mem_data = json.load(f)
-                if mem_data:
-                    memory = "\nSuccessful Past Queries to Learn From:\n"
-                    for m in mem_data[-5:]: # Last 5 memories
-                        memory += f"Q: {m['query']}\nSQL: {m['sql']}\n\n"
-        except:
-            pass
+        mem_data = self._get_memory("router")
+        if mem_data:
+            memory = "\nSuccessful Past Queries to Learn From:\n"
+            # Hafızadan sadece son 5 başarılı deneyimi bağlama dahil ediyoruz
+            for m in mem_data[-5:]:
+                memory += f"Q: {m['query']}\nSQL: {m['sql']}\n\n"
 
         system_prompt = f"""You are a strictly Read-Only SQLite code generator.
 System Identity and Rules:
@@ -103,33 +121,22 @@ ONLY return the SQL statement."""
 
         today = datetime.date.today().isoformat()
 
-        manifest = ""
-        try:
-            with open("ailo_manifest.yaml", "r") as f:
-                manifest = f.read()
-        except:
-            manifest = "Manifest missing."
+        manifest = self._get_manifest()
 
-        # RAG Mimarisi: Geçmişte yaşadığımız tecrübelerden en benzer 3 tanesini bulup bağlama ekleyelim.
+        # RAG Mimarisi: RAM'deki hafızadan en benzer 3 tecrübeyi bağlama ekleyelim
         past_experiences = ""
-        try:
-            with open("memory_intent.json", "r") as f:
-                memories = json.load(f)
+        memories = self._get_memory("intent")
+        if memories:
+            queries = [m['query'] for m in memories]
+            matches = difflib.get_close_matches(user_prompt, queries, n=3, cutoff=0.1)
 
-            if memories:
-                queries = [m['query'] for m in memories]
-                # En çok benzeyen 3 sorguyu yakalayalım
-                matches = difflib.get_close_matches(user_prompt, queries, n=3, cutoff=0.1)
-
-                if matches:
-                    past_experiences = "\nÖğrenilen Geçmiş Tecrübeler:\n"
-                    for match in matches:
-                        for m in memories:
-                            if m['query'] == match:
-                                past_experiences += f"Kullanıcı: {m['query']}\nDoğru Çıktı: {m['sql']}\n\n"
-                                break
-        except Exception:
-            pass
+            if matches:
+                past_experiences = "\nÖğrenilen Geçmiş Tecrübeler:\n"
+                for match in matches:
+                    for m in memories:
+                        if m['query'] == match:
+                            past_experiences += f"Kullanıcı: {m['query']}\nDoğru Çıktı: {m['sql']}\n\n"
+                            break
 
         system_prompt = f"""{manifest}
 You are AILO, the Intent Router for the System.
@@ -274,39 +281,70 @@ Lütfen bu hava kalitesi verisini okuyup 2-3 cümlelik çok şık ve net bir yö
         except Exception as e:
             return f"Oracle analyst fallback error: {e}"
 
-    def is_memory_duplicate(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
-        import json
-        import difflib
-        filename = f"memory_{persona}.json"
+
+    def ai_oracle_fallback(self, user_prompt: str, bad_output: str, intent_type: str = "sql") -> str:
+        # Gemini API'yi kullanarak yerel modelin takıldığı SQL komutlarını veya JSON yanıtlarını kurtarır.
+        import google.generativeai as genai
+        import os
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return ""
+
+        manifest = self._get_manifest()
+
         try:
-            with open(filename, "r") as f:
-                mem_data = json.load(f)
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
-            for m in mem_data:
-                if m.get('sql', '').strip().upper() == new_sql.strip().upper():
-                    return True
+            prompt = f"""Şema ve Sistem Kuralları:
+{manifest}
 
-                ratio = difflib.SequenceMatcher(None, m.get('query', '').lower(), new_query.lower()).ratio()
-                if ratio > 0.85:
-                    return True
-            return False
-        except:
-            return False
+Kullanıcı Sorusu: {user_prompt}
+Yerel modelin ürettiği bozuk SQL/JSON: {bad_output}
+
+Sadece düzeltilmiş ve hatasız çalışacak doğru kodu (SQL sorgusu veya JSON formatı) döndür. Hiçbir açıklama yapma."""
+
+            response = model.generate_content(prompt)
+            fixed_data = response.text.strip()
+
+            # Markdown kalıntılarını süpürüyoruz
+            if fixed_data.startswith("```sql"): fixed_data = fixed_data[6:]
+            if fixed_data.startswith("```json"): fixed_data = fixed_data[7:]
+            if fixed_data.startswith("```"): fixed_data = fixed_data[3:]
+            if fixed_data.endswith("```"): fixed_data = fixed_data[:-3]
+
+            return fixed_data.strip()
+        except Exception as e:
+            print(f"Oracle fallback error: {e}")
+            return ""
+
+    def is_memory_duplicate(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
+        import difflib
+
+        # Sadece RAM'deki hafızaya bakıyoruz, disk I/O yapmıyoruz
+        mem_data = self._get_memory(persona)
+
+        for m in mem_data:
+            if m.get('sql', '').strip().upper() == new_sql.strip().upper():
+                return True
+
+            ratio = difflib.SequenceMatcher(None, m.get('query', '').lower(), new_query.lower()).ratio()
+            if ratio > 0.85:
+                return True
+        return False
 
     def save_to_memory(self, new_query: str, new_sql: str, persona: str = "router") -> bool:
         import json
         if self.is_memory_duplicate(new_query, new_sql, persona):
             return False
 
-        filename = f"memory_{persona}.json"
-        memories = []
-        try:
-            with open(filename, "r") as f:
-                memories = json.load(f)
-        except:
-            pass
-
+        # RAM'deki önbelleği güncelliyoruz
+        memories = self._get_memory(persona)
         memories.append({"query": new_query, "sql": new_sql})
+        self._memory_cache[persona] = memories
+
+        # Fiziksel dosyaya yansıtıyoruz
+        filename = f"memory_{persona}.json"
         try:
             with open(filename, "w") as f:
                 json.dump(memories, f, indent=4)
