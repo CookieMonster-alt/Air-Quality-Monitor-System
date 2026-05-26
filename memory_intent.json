@@ -1,0 +1,10 @@
+[
+    {
+        "query": "Show me lowest data",
+        "sql": "{\"intent\": \"query\", \"parameters\": {\"city\": null, \"aqi\": null, \"date\": null, \"start_date\": null, \"end_date\": null, \"url\": null, \"menu_target\": null}, \"status\": \"incomplete\", \"missing_slot\": \"city\", \"ask_user\": \"For which city do you want to find the lowest AQI value?\"}"
+    },
+    {
+        "query": "Show me lowest data Any city lowest aqi in the database",
+        "sql": "{\"intent\": \"query\", \"parameters\": {\"city\": null, \"aqi\": null, \"date\": null, \"start_date\": null, \"end_date\": null, \"url\": null, \"menu_target\": null}, \"status\": \"complete\", \"missing_slot\": null, \"ask_user\": null}"
+    }
+]

@@ -169,3 +169,9 @@ def create_spinner(text: str):
         TextColumn("[progress.description]{task.description}"),
         transient=True
     )
+
+def get_input(prompt_text: str, password: bool = False, choices: list = None, default: str = None) -> str:
+    """
+    Get user input using rich Prompt.
+    """
+    return Prompt.ask(prompt_text, password=password, choices=choices, default=default)
