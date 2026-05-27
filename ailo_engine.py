@@ -30,6 +30,7 @@ class AILOMasterEngine:
     async def pre_warm_models(self):
         """Asynchronously loads heavy AI models into RAM to prevent UI blocking."""
         import sys
+        import os
         # sys.path hacking so we can import src without proper package structure
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
