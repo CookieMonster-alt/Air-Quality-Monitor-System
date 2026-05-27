@@ -1,5 +1,5 @@
 import asyncio
-from tui_engine_v3 import TUIEngine
+from tui_engine import TUIEngine
 from async_executor import ailo_executor
 
 class AILOMasterEngine:
@@ -27,9 +27,28 @@ class AILOMasterEngine:
         # Return cleanly back to TUI stream
         self.tui.print_system_message(f"Success: {result}")
 
+    async def pre_warm_models(self):
+        """Asynchronously loads heavy AI models into RAM to prevent UI blocking."""
+        import sys
+        # sys.path hacking so we can import src without proper package structure
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+        try:
+            from src.rag.embedder import embedder
+            self.tui.print_system_message("Model is loading in background...")
+            # Yield to thread pool for the 10s load time
+            await ailo_executor.run_in_background(embedder.load_model)
+            self.tui.print_system_message("Semantic Embedder loaded successfully.", level="success")
+        except Exception as e:
+            self.tui.print_system_message(f"Failed to pre-warm models: {e}", level="error")
+
     async def run(self):
         """The core asyncio event loop powering the TUI."""
+        import os
         self.tui.show_splash_screen()
+
+        # Fire and forget the pre-warming task
+        asyncio.create_task(self.pre_warm_models())
 
         while self.is_running:
             try:

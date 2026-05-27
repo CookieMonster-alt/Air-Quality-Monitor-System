@@ -4,3 +4,4 @@ aqi_data.db
 
 # Security
 .env
+ailo/models/
