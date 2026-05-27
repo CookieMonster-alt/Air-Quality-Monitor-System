@@ -5,3 +5,4 @@ aqi_data.db
 # Security
 .env
 ailo/models/
+data/vector_db/

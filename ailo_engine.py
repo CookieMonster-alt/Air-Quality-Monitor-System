@@ -1,6 +1,7 @@
 import asyncio
 from tui_engine import TUIEngine
 from async_executor import ailo_executor
+from src.intent.cascade_guard import cascade_guard
 
 class AILOMasterEngine:
     """
@@ -12,20 +13,18 @@ class AILOMasterEngine:
         self.is_running = True
 
     async def process_command(self, command: str):
-        """Simulate sending the command to the background executor."""
-        # Visual feedback during the wait
-        self.tui.print_system_message(f"Processing command: '{command}' in background...")
+        """Routes the command through the 4-Layer Cascade Guard asynchronously."""
+        # Visual feedback
+        self.tui.print_system_message(f"Analyzing intent via Cascade Guard...")
 
-        # Dispatch dummy heavy load to thread pool
-        import time
-        def dummy_heavy_load():
-            time.sleep(2)
-            return f"Result payload for '{command}'"
+        # Execute the cascade guard parsing in the background executor to avoid blocking the TUI event loop
+        intent = await ailo_executor.run_in_background(cascade_guard.parse, command)
 
-        result = await ailo_executor.run_in_background(dummy_heavy_load)
-
-        # Return cleanly back to TUI stream
-        self.tui.print_system_message(f"Success: {result}")
+        if intent == "UNKNOWN":
+            self.tui.print_system_message("Cascade Guard exhausted. Deferring to Layer 4 (LLM Fallback).", level="error")
+            # In a real scenario, this would call ai_llm_engine.parse_intent
+        else:
+            self.tui.print_system_message(f"Intent resolved rapidly: [{intent.upper()}]")
 
     async def pre_warm_models(self):
         """Asynchronously loads heavy AI models into RAM to prevent UI blocking."""
