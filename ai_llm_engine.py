@@ -1,9 +1,5 @@
 import os
 
-# Always resolve paths relative to this file's directory,
-# regardless of the working directory the app is launched from.
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 try:
     from huggingface_hub import hf_hub_download
     from llama_cpp import Llama
@@ -20,11 +16,11 @@ class AIEngine:
         self._memory_cache = {}
 
     def _get_manifest(self) -> str:
+        # Önbellekte manifesto varsa direkt onu döndür, diski yorma
         if self._manifest_cache is not None:
             return self._manifest_cache
         try:
-            manifest_path = os.path.join(_BASE_DIR, "ailo_manifest.yaml")
-            with open(manifest_path, "r") as f:
+            with open("ailo_manifest.yaml", "r") as f:
                 self._manifest_cache = f.read()
         except:
             self._manifest_cache = "Manifest missing."
@@ -32,11 +28,11 @@ class AIEngine:
 
     def _get_memory(self, persona: str) -> list:
         import json
+        # İlgili kişiliğin hafızası RAM'de varsa diski meşgul etmeyelim
         if persona in self._memory_cache:
             return self._memory_cache[persona]
         try:
-            memory_path = os.path.join(_BASE_DIR, f"memory_{persona}.json")
-            with open(memory_path, "r") as f:
+            with open(f"memory_{persona}.json", "r") as f:
                 mem_data = json.load(f)
                 self._memory_cache[persona] = mem_data
                 return mem_data
@@ -78,46 +74,16 @@ class AIEngine:
             for m in mem_data[-5:]:
                 memory += f"Q: {m['query']}\nSQL: {m['sql']}\n\n"
 
-        system_prompt = f"""You are a strictly Read-Only SQLite query generator for an Air Quality Monitor System.
-
-THE ONLY VALID DATABASE SCHEMA - DO NOT USE ANY OTHER COLUMN NAMES:
-
-TABLE: records
-  - id          INTEGER PRIMARY KEY
-  - city_name   TEXT
-  - aqi_value   REAL    (this is the air quality value - use for highest, lowest, best, worst queries)
-  - timestamp   TEXT
-
-TABLE: predictions
-  - id              INTEGER PRIMARY KEY
-  - city_name       TEXT
-  - predicted_aqi   REAL
-  - prediction_date TEXT
-  - target_date     TEXT
-  - decision_made   TEXT
-
-FORBIDDEN COLUMNS (THESE DO NOT EXIST - NEVER USE THEM):
-- population, aqi, value, score, index, air_quality, pollution, quality, level, reading
-
-RULES:
-- Use ONLY the exact column names listed above. Nothing else.
-- For air quality data, ALWAYS use: aqi_value
-- Use COLLATE NOCASE when filtering by city_name.
-- Return ONLY the raw SQL SELECT statement. No markdown. No explanation.
-
-SYSTEM MANIFEST:
-{self._get_manifest()}
-
+        system_prompt = f"""You are a strictly Read-Only SQLite code generator.
+System Identity and Rules:
+{manifest}
 {memory}
-Examples:
-Q: Show highest london data
-SQL: SELECT city_name, aqi_value, timestamp FROM records WHERE city_name = 'London' COLLATE NOCASE ORDER BY aqi_value DESC LIMIT 10;
-
-Q: Show me 3 highest london data
-SQL: SELECT city_name, aqi_value, timestamp FROM records WHERE city_name = 'London' COLLATE NOCASE ORDER BY aqi_value DESC LIMIT 3;
-
-Q: What is the average aqi for Manchester
-SQL: SELECT city_name, AVG(aqi_value) as avg_aqi FROM records WHERE city_name = 'Manchester' COLLATE NOCASE;"""
+Generate a SELECT query based on the user's request.
+CRITICAL: YOU MUST USE THE EXACT TABLE NAME AND COLUMNS DEFINED IN THE MANIFEST. THE TABLE IS records AND THE CITY COLUMN IS city_name. DO NOT INVENT TABLES LIKE cities.
+Return ONLY the raw SQL query.
+DO NOT wrap the output in markdown block quotes (e.g. no ```sql).
+DO NOT provide any explanations.
+ONLY return the SQL statement."""
 
         prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
 
@@ -172,36 +138,38 @@ SQL: SELECT city_name, AVG(aqi_value) as avg_aqi FROM records WHERE city_name = 
                             past_experiences += f"Kullanıcı: {m['query']}\nDoğru Çıktı: {m['sql']}\n\n"
                             break
 
-        system_prompt = f"""You are AILO, the Intent Router for an Air Quality Monitor System.
+        system_prompt = f"""{manifest}
+You are AILO, the Intent Router for the System.
 Today's date is: {today}.
 {past_experiences}
 
-The database has these tables:
-- records: id, city_name, aqi_value, timestamp
-- predictions: id, city_name, predicted_aqi, prediction_date, target_date, decision_made
+Analyze the user's natural language input and output ONLY a valid JSON object matching this schema:
+{{
+  "intent": "query" | "insert" | "delete" | "fetch_data" | "navigate",
+  "parameters": {{
+    "city": string | null,
+    "aqi": float | null,
+    "date": string | null,
+    "start_date": string | null,
+    "end_date": string | null,
+    "url": string | null,
+    "menu_target": string | null
+  }},
+  "status": "complete" | "incomplete",
+  "missing_slot": string | null,
+  "ask_user": string | null
+}}
 
-SYSTEM MANIFEST:
-{manifest}
-
-Analyze the user's natural language input and output ONLY a valid JSON object:
-{{"intent": "query"|"insert"|"delete"|"fetch_data"|"navigate", "parameters": {{"city": string|null, "aqi": float|null, "date": string|null, "start_date": string|null, "end_date": string|null, "url": string|null, "menu_target": string|null}}, "status": "complete"|"incomplete", "missing_slot": string|null, "ask_user": string|null}}
-
-INTENT RULES - READ CAREFULLY:
-- "query": User wants to READ, SHOW, DISPLAY, VIEW, SEARCH, FIND, GET, LIST, or ANALYZE data already in the database.
-  Keywords: show, display, get, find, list, what is, latest, newest, highest, lowest, average, how many, all, recent
-  Examples: "show london data", "latest london data", "show me newest data for london", "what is the highest AQI", "get all records"
-- "insert": User wants to ADD or RECORD new data. Keywords: add, record, save, insert, log, enter
-  Examples: "add paris with aqi 45", "record london aqi 55"
-- "delete": User wants to ERASE or REMOVE data. Keywords: delete, remove, clear, erase
-  Examples: "delete london records"
-- "fetch_data": User wants to IMPORT a CSV file. This requires a file path or URL. Keywords: import, fetch, load from file, csv
-  ONLY use fetch_data if user mentions a file path or CSV. NEVER use fetch_data for show/display/list queries.
-  Examples: "import data from /path/to/file.csv", "load historical csv"
-- "navigate": User wants to go to a menu. Keywords: go to, open menu, admin, settings
-
-CRITICAL: "latest", "newest", "most recent", "show", "display" are ALWAYS "query" intent. NEVER "fetch_data".
-
-DO NOT wrap output in markdown. Return ONLY the JSON object."""
+Rules:
+- "query": User wants to search, read, or analyze data. (e.g. "show me the highest AQI", "what is London's data")
+- "insert": User wants to add new data. (e.g. "add paris with aqi 45")
+- "delete": User wants to erase data. (e.g. "delete records for london")
+- "fetch_data": User wants to fetch or download historical data. This ALWAYS requires 'url' (the file path to the CSV). If 'url', 'start_date', or 'end_date' are missing, you MUST set status to 'incomplete', specify the missing_slot, and ask for it in 'ask_user'.
+- "navigate": User wants to open a menu.
+- If an intent requires specific parameters that are missing, set "status": "incomplete", specify "missing_slot", and write a natural question in "ask_user" to prompt the user for it.
+- E.g. If insert is requested but aqi is missing, you DO NOT need to ask for aqi, because the system can fetch it autonomously. Just return city.
+- DO NOT wrap the output in markdown. Output purely the JSON object.
+"""
 
         prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{user_prompt}<|im_end|>\n<|im_start|>assistant\n"
 
@@ -261,28 +229,14 @@ DO NOT wrap output in markdown. Return ONLY the JSON object."""
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
-            prompt = f"""You are the intent classifier for AILO, an Air Quality Monitor System.
+            prompt = f"""Kullanıcı cümlesi: {user_prompt}
+Yerel modelin ürettiği hatalı çıktı: {bad_output}
 
-INTENT RULES:
-- "query": User wants to READ, SHOW, DISPLAY, VIEW, SEARCH, FIND, or ANALYZE existing database data.
-  Keywords: show, display, get, find, list, latest, newest, highest, lowest, average, recent, what is, how many
-  CRITICAL: "latest", "newest", "show", "display" are ALWAYS "query". NEVER "fetch_data".
-- "insert": User wants to ADD new data. Keywords: add, record, save, insert
-- "delete": User wants to ERASE data. Keywords: delete, remove, clear
-- "fetch_data": ONLY when user explicitly mentions importing a CSV file or file path. Keywords: import csv, load file
-- "navigate": User wants to open a menu
-
-The database schema:
-- records table: id, city_name, aqi_value, timestamp
-- predictions table: id, city_name, predicted_aqi, prediction_date, target_date, decision_made
-
-User said: "{user_prompt}"
-Local model produced invalid output: {bad_output}
-
-Return ONLY a valid JSON object (no markdown):
-{{"intent": "query"|"insert"|"delete"|"fetch_data"|"navigate", "parameters": {{"city": string|null, "aqi": float|null, "date": string|null, "start_date": string|null, "end_date": string|null, "url": string|null, "menu_target": string|null}}, "status": "complete"|"incomplete", "missing_slot": string|null, "ask_user": string|null}}"""
+Lütfen bu cümleyi sistem manifestomuza uygun olarak analiz et ve SADECE geçerli bir JSON objesi döndür.
+Beklenen alanlar: intent, parameters (city, aqi, vb.), status, missing_slot, ask_user.
+Hiçbir ek açıklama yapma."""
 
             response = model.generate_content(prompt)
             fixed_json_str = response.text.strip()
@@ -293,7 +247,7 @@ Return ONLY a valid JSON object (no markdown):
 
             parsed_data = json.loads(fixed_json_str.strip())
 
-            # Correct classification saved to memory so local model learns from it
+            # Hatayı düzeltmeyi başardık, bunu hafızaya kazıyalım ki bir daha yaşanmasın.
             self.save_to_memory(user_prompt, json.dumps(parsed_data), persona="intent")
             return parsed_data
 
@@ -311,7 +265,7 @@ Return ONLY a valid JSON object (no markdown):
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
             prompt = f"""Veri: {data_input}
 Yerel modelin hatalı/boş özeti: {bad_output}
@@ -327,106 +281,6 @@ Lütfen bu hava kalitesi verisini okuyup 2-3 cümlelik çok şık ve net bir yö
         except Exception as e:
             return f"Oracle analyst fallback error: {e}"
 
-    def ai_teacher_audit_intent(self, user_prompt: str, local_intent_data: dict) -> tuple[dict, bool]:
-        import google.generativeai as genai
-        import os
-        import json
-
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return local_intent_data, True  # Skip audit if offline
-
-        manifest = self._get_manifest()
-
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
-
-            prompt = f"""You are the Cloud Teacher Auditor for AILO.
-The local model processed the user's prompt and generated an intent classification.
-You must grade this classification.
-
-SYSTEM MANIFEST AND CAPABILITIES:
-{manifest}
-
-USER PROMPT: "{user_prompt}"
-LOCAL MODEL'S OUTPUT: {json.dumps(local_intent_data)}
-
-Is the local model's output PERFECTLY correct according to the manifest rules (especially the rules about 'download', 'latest', etc.)?
-If it is 100% correct, return ONLY the exact word "PASS".
-If it is wrong or hallucinated, return ONLY the corrected JSON object. DO NOT include any other text or markdown."""
-
-            response = model.generate_content(prompt)
-            result_str = response.text.strip()
-
-            if result_str == "PASS":
-                return local_intent_data, True
-            
-            # Parse corrected JSON
-            if result_str.startswith("```json"): result_str = result_str[7:]
-            if result_str.startswith("```"): result_str = result_str[3:]
-            if result_str.endswith("```"): result_str = result_str[:-3]
-
-            parsed_data = json.loads(result_str.strip())
-            
-            # Save correction to memory so local model learns
-            self.save_to_memory(user_prompt, json.dumps(parsed_data), persona="intent")
-            return parsed_data, False
-            
-        except Exception as e:
-            print(f"Teacher Audit Intent error: {e}")
-            return local_intent_data, True
-
-    def ai_teacher_audit_sql(self, user_prompt: str, local_sql: str) -> tuple[str, bool]:
-        import google.generativeai as genai
-        import os
-
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            return local_sql, True  # Skip audit if offline
-
-        manifest = self._get_manifest()
-
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
-
-            prompt = f"""You are the Cloud Teacher Auditor for AILO.
-The local model generated a SQLite query based on the user's prompt.
-You must grade this query for logical accuracy and hallucination.
-
-SYSTEM MANIFEST AND SCHEMA:
-{manifest}
-
-USER PROMPT: "{user_prompt}"
-LOCAL MODEL'S GENERATED SQL: "{local_sql}"
-
-RULES FOR GRADING:
-1. Did the local model hallucinate a city name not in the user's prompt? (e.g. prompt says "show 3 highest", SQL says "WHERE city_name='London'").
-2. Did the local model misinterpret date logic? (e.g. prompt says "last week", SQL says "LIMIT 1" instead of a date filter).
-3. Is it structurally invalid?
-
-If the SQL is 100% PERFECT and logically matches the prompt, return ONLY the exact word "PASS".
-If it is flawed, return ONLY the corrected raw SQL statement. DO NOT include any other text, markdown, or explanations."""
-
-            response = model.generate_content(prompt)
-            result_str = response.text.strip()
-
-            if result_str == "PASS":
-                return local_sql, True
-            
-            if result_str.startswith("```sql"): result_str = result_str[6:]
-            if result_str.startswith("```"): result_str = result_str[3:]
-            if result_str.endswith("```"): result_str = result_str[:-3]
-            
-            fixed_sql = result_str.strip()
-            # Save correction to memory
-            self.save_to_memory(user_prompt, fixed_sql, persona="router")
-            return fixed_sql, False
-            
-        except Exception as e:
-            print(f"Teacher Audit SQL error: {e}")
-            return local_sql, True
 
     def ai_oracle_fallback(self, user_prompt: str, bad_output: str, intent_type: str = "sql") -> str:
         # Gemini API'yi kullanarak yerel modelin takıldığı SQL komutlarını veya JSON yanıtlarını kurtarır.
@@ -436,41 +290,19 @@ If it is flawed, return ONLY the corrected raw SQL statement. DO NOT include any
         if not api_key:
             return ""
 
+        manifest = self._get_manifest()
+
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
-            prompt = f"""You are a SQLite expert for an Air Quality Monitor System.
+            prompt = f"""Şema ve Sistem Kuralları:
+{manifest}
 
-CRITICAL - THE ONLY VALID DATABASE SCHEMA IS:
+Kullanıcı Sorusu: {user_prompt}
+Yerel modelin ürettiği bozuk SQL/JSON: {bad_output}
 
-TABLE: records
-  COLUMNS (EXACT NAMES, NO OTHERS EXIST):
-    - id          (INTEGER PRIMARY KEY)
-    - city_name   (TEXT)
-    - aqi_value   (REAL)   <- Use this for AQI, air quality, pollution level, highest/lowest queries
-    - timestamp   (TEXT)
-
-TABLE: predictions
-  COLUMNS (EXACT NAMES, NO OTHERS EXIST):
-    - id              (INTEGER PRIMARY KEY)
-    - city_name       (TEXT)
-    - predicted_aqi   (REAL)
-    - prediction_date (TEXT)
-    - target_date     (TEXT)
-    - decision_made   (TEXT)
-
-RULES:
-- There is NO column called: population, aqi, value, air_quality, pollution, score, index, or any other name.
-- The ONLY column for air quality values is: aqi_value
-- Always use COLLATE NOCASE when filtering by city_name.
-- Only generate SELECT statements.
-- Return ONLY the raw SQL query, no markdown, no explanation.
-
-The user asked: {user_prompt}
-A broken SQL was generated: {bad_output}
-
-The broken SQL is WRONG because it uses non-existent columns. Write a correct SQL query that answers the user's question using ONLY the valid columns listed above."""
+Sadece düzeltilmiş ve hatasız çalışacak doğru kodu (SQL sorgusu veya JSON formatı) döndür. Hiçbir açıklama yapma."""
 
             response = model.generate_content(prompt)
             fixed_data = response.text.strip()
@@ -506,17 +338,18 @@ The broken SQL is WRONG because it uses non-existent columns. Write a correct SQ
         if self.is_memory_duplicate(new_query, new_sql, persona):
             return False
 
+        # RAM'deki önbelleği güncelliyoruz
         memories = self._get_memory(persona)
         memories.append({"query": new_query, "sql": new_sql})
         self._memory_cache[persona] = memories
 
-        memory_path = os.path.join(_BASE_DIR, f"memory_{persona}.json")
+        # Fiziksel dosyaya yansıtıyoruz
+        filename = f"memory_{persona}.json"
         try:
-            with open(memory_path, "w") as f:
+            with open(filename, "w") as f:
                 json.dump(memories, f, indent=4)
             return True
-        except Exception as e:
-            print(f"[AILO Memory] Warning: could not save memory to {memory_path}: {e}")
+        except:
             return False
 
     def generate_training_questions(self, topic: str, count: int, department: str = "sql") -> list:
@@ -529,15 +362,14 @@ The broken SQL is WRONG because it uses non-existent columns. Write a correct SQ
 
         manifest = ""
         try:
-            manifest_path = os.path.join(_BASE_DIR, "ailo_manifest.yaml")
-            with open(manifest_path, "r") as f:
+            with open("ailo_manifest.yaml", "r") as f:
                 manifest = f.read()
         except:
             manifest = "Manifest missing."
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
+            model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
 
             if department == "niyet":
                 task_desc = "Kullanıcıların niyet çözücüye (Intent Parser) sorabileceği doğal dilde komutlar üret (örneğin: 'son 3 günün verisini sil', 'parisi 45 aqi ile ekle', 'londra verilerini getir')."

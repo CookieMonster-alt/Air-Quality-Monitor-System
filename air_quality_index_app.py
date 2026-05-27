@@ -74,24 +74,15 @@ Available at: https://sentry.io/answers/print-colored-text-to-terminal-with-pyth
 import json
 import datetime
 import os, shutil
-from dotenv import load_dotenv
-
-# Always resolve file paths relative to this script's own directory,
-# regardless of the working directory the app is launched from.
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Load environment variables from .env file in the project directory
-load_dotenv(os.path.join(_BASE_DIR, ".env"))
-
 import tui_engine as tui
 from data_manager import DatabaseManager, CityRecord, get_epa_category, get_epa_color_tag, get_epa_color_hex, get_epa_category_raw
 import api_integration
 import ai_engine
 from ai_llm_engine import AIEngine
 
-# ------------------ Constant Variables ---------------------|
+# ------------------ Constant Variables ------------------|
 
-DB_FILE = os.path.join(_BASE_DIR, "aqi_data.db")
+DB_FILE = "aqi_data.db"
 db = DatabaseManager(DB_FILE)
 
 # Reference 15
@@ -245,9 +236,8 @@ Menus:
 
 
 
-
-def handle_query_intent(current_prompt, ai, intent_params=None):
-    # SQL generation with 3-layer semantic validation.
+def handle_query_intent(current_prompt, ai):
+    # SQL üretim ve insan döngülü (HITL) hata düzeltme sürecini yönetir.
     while True:
         with tui.create_spinner("AILO is generating SQL...") as progress:
             task_id = progress.add_task("AILO is generating SQL...", total=None)
@@ -259,20 +249,8 @@ def handle_query_intent(current_prompt, ai, intent_params=None):
             return
 
         safe_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
-        tui.show_msg("info", f"Local Generated SQL: [bold white]{safe_sql}[/]")
+        tui.show_msg("warning", f"Generated SQL: [bold white]{safe_sql}[/]")
 
-        # --- ALPHA/BETA CLOUD TEACHER AUDIT ---
-        with tui.create_spinner("Cloud Teacher is auditing SQL...") as progress:
-            task_id = progress.add_task("Teacher Auditing...", total=None)
-            sql_query, sql_pass = ai.ai_teacher_audit_sql(current_prompt, sql_query)
-
-        if not sql_pass:
-            safe_fixed_sql = sql_query.replace("[", "\\[").replace("]", "\\]")
-            tui.show_msg("warning", f"Teacher corrected SQL to: [bold white]{safe_fixed_sql}[/]")
-        else:
-            tui.show_msg("success", "Teacher passed the SQL!")
-
-        # Execute the query
         success, result, cursor_description = db.execute_ai_read_query(sql_query)
         if not success:
             error_msg = str(result)
@@ -306,50 +284,8 @@ def handle_query_intent(current_prompt, ai, intent_params=None):
 
         if success:
             if not result:
-                # --- LAYER 2: 0-rows Plausibility Check ---
-                # Use actual DB city names to detect if user mentioned a real city.
-                # The old uppercase heuristic wrongly matched words like 'Show', 'Latest'.
-                count_ok, count_result, _ = db.execute_ai_read_query("SELECT COUNT(*) FROM records")
-                db_has_data = count_ok and count_result and count_result[0][0] > 0
-
-                if db_has_data:
-                    # Get all known cities from DB to check against prompt
-                    _, cities_result, _ = db.execute_ai_read_query(
-                        "SELECT DISTINCT city_name FROM records"
-                    )
-                    known_cities = (
-                        {row[0].lower() for row in cities_result} if cities_result else set()
-                    )
-                    prompt_lower = current_prompt.lower()
-                    prompt_has_known_city = any(city in prompt_lower for city in known_cities)
-
-                    if not prompt_has_known_city:
-                        # User didn't mention any known city but got 0 rows — likely hallucinated filter
-                        tui.show_msg("warning",
-                            "Query returned 0 rows but the database has data. "
-                            "The SQL may have added an incorrect filter. Asking Oracle...")
-                        with tui.create_spinner("Oracle re-checking query...") as progress:
-                            task_id = progress.add_task("Oracle verifying...", total=None)
-                            fixed_sql = ai.ai_oracle_fallback(current_prompt, sql_query, "sql")
-                        if fixed_sql and fixed_sql.strip().upper() != sql_query.strip().upper():
-                            r_ok, r_result, r_desc = db.execute_ai_read_query(fixed_sql)
-                            if r_ok and r_result:
-                                tui.show_msg("success", "Oracle found and corrected a silent query error!")
-                                ai.save_to_memory(current_prompt, fixed_sql, persona="router")
-                                success, result, cursor_description = r_ok, r_result, r_desc
-                            else:
-                                tui.show_msg("info", "Query returned 0 rows.")
-                        else:
-                            tui.show_msg("info", "Query returned 0 rows.")
-                    else:
-                        tui.show_msg("info", "Query returned 0 rows.")
-                else:
-                    tui.show_msg("info", "Query returned 0 rows.")
-
-            if result:
-                # --- LAYER 3: Only save to memory when we have actual results ---
-                ai.save_to_memory(current_prompt, sql_query, persona="router")
-
+                tui.show_msg("info", "Query returned 0 rows.")
+            else:
                 headers = [desc[0] for desc in cursor_description]
                 str_rows = []
                 has_aqi = 'aqi_value' in headers
@@ -370,7 +306,7 @@ def handle_query_intent(current_prompt, ai, intent_params=None):
                     str_rows.append(str_row)
                 tui.show_table("AILO Results", headers, str_rows, use_pager=False)
 
-                # Share data to RAM blackboard for Analyst / Visualizer agents
+                # Tablodaki veriyi diğer yapay zeka departmanlarının (Analist, Çizer) görebilmesi için RAM havuzuna atıyoruz.
                 import pandas as pd
                 try:
                     clean_headers = headers[:len(result[0])]
@@ -512,16 +448,6 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
             task_id = progress.add_task("AILO is parsing your intent...", total=None)
             intent_data = ai.parse_intent(current_prompt)
 
-        # --- ALPHA/BETA CLOUD TEACHER AUDIT ---
-        with tui.create_spinner("Cloud Teacher is auditing intent...") as progress:
-            task_id = progress.add_task("Teacher Auditing...", total=None)
-            intent_data, intent_pass = ai.ai_teacher_audit_intent(current_prompt, intent_data)
-        
-        if not intent_pass:
-            tui.show_msg("warning", f"Teacher corrected intent to: {intent_data.get('intent')}")
-        else:
-            tui.show_msg("success", "Teacher passed the intent classification!")
-
         status = intent_data.get("status")
 
         # Eğer kullanıcının cümlesi eksikse (örn: sadece 'sil' dediyse), ona hangi şehri sileceğini soralım.
@@ -538,26 +464,13 @@ def orchestrate_intent(initial_prompt: str, ai_instance=None):
         intent = intent_data.get("intent")
         params = intent_data.get("parameters", {})
 
-        # Safety guard: local model sometimes misclassifies show/display/latest queries
-        # as fetch_data. fetch_data REQUIRES a file path or URL — if there is none,
-        # and the user's prompt looks like a read query, override to 'query'.
-        if intent == "fetch_data":
-            url = (params or {}).get("url") or ""
-            fetch_keywords = ["import", "csv", "file", "download", "upload", "load from"]
-            prompt_lower = current_prompt.lower()
-            has_fetch_keyword = any(kw in prompt_lower for kw in fetch_keywords)
-            if not url and not has_fetch_keyword:
-                # Reclassify as query and save correct intent to memory so model learns
-                ai.save_to_memory(current_prompt, '{"intent": "query"}', persona="intent")
-                intent = "query"
-
         if intent == "navigate":
             tui.show_msg("info", f"Navigating as requested...")
             tui.get_input("Press Enter to continue")
             return
 
         elif intent == "query":
-            handle_query_intent(current_prompt, ai, intent_params=params)
+            handle_query_intent(current_prompt, ai)
             return
 
         elif intent == "insert":
@@ -669,12 +582,6 @@ def delete_data_menu():
 # Admin Menu Ends Here
 # |---------------------------------------------------------------------------|
 
-def get_city_selection(prompt_msg: str) -> str:
-    city = tui.get_input(prompt_msg)
-    if city:
-        return city.strip().title()
-    return ""
-
 def menu_5():
     import random
     import time
@@ -782,9 +689,6 @@ def menu_5():
 
             return
 
-def menu_7():
-    tui.show_msg("info", "Training module is not fully implemented yet.")
-    tui.get_input("Press Enter to return...")
 
 # |----------------- End of Main Menu and Display Functions ------------------|
 

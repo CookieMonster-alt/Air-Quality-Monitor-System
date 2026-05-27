@@ -5,4 +5,3 @@ huggingface_hub
 llama-cpp-python
 prompt_toolkit
 plotext
-python-dotenv
