@@ -6,3 +6,5 @@ llama-cpp-python
 prompt_toolkit
 plotext
 sentence-transformers
+scikit-learn
+chromadb
