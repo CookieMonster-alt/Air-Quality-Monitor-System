@@ -1,5 +1,5 @@
 import asyncio
-from tui_engine import TUIEngine
+from tui_engine_v3 import TUIEngine
 from async_executor import ailo_executor
 
 class AILOMasterEngine:
