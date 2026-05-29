@@ -30,8 +30,18 @@ class AILOMasterEngine:
             # It came from Layer 4 LLM fallback JSON
             intent = result.get("intent", "llm_chat")
             response = result.get("response", "")
-            if response:
-                self.tui.print_system_message(f"LLM Chat Response: {response}", level="success")
+            error = result.get("error", "")
+
+            if error:
+                self.tui.print_system_message(f"LLM generated invalid format: {error}", level="error")
+                # Attempt to dump raw text if available
+                raw_text = result.get("raw_text", "")
+                if raw_text:
+                    self.tui.print_system_message(f"Raw Output: {raw_text}")
+            elif response:
+                # Let AILO speak directly!
+                self.tui.print_system_message(f"🧠 Brain: {response}")
+
             self.tui.print_system_message(f"Intent resolved via LLM: [{intent.upper()}]")
         elif result == "UNKNOWN":
             self.tui.print_system_message("Cascade Guard exhausted. LLM Fallback unavailable.", level="error")
