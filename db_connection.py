@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import queue
 import threading
@@ -9,7 +10,10 @@ class SQLiteConnectionPool:
     A thread-safe SQLite connection pool implementing WAL mode to prevent
     database locks during high-concurrency operations on constrained hardware.
     """
-    def __init__(self, db_path: str = "aqi_data.db", pool_size: int = 5):
+    def __init__(self, db_path: str = None, pool_size: int = 5):
+        if db_path is None:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            db_path = os.path.join(base_dir, "data", "ailo_db.sqlite")
         self.db_path = db_path
         self.pool_size = pool_size
         self._pool = queue.Queue(maxsize=pool_size)
