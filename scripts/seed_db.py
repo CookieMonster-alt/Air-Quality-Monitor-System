@@ -2,11 +2,13 @@
 import sqlite3
 import os
 
-DB_PATH = "data/ailo_db.sqlite"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "ailo_db.sqlite")
 
 def seed_database():
+    data_dir = os.path.join(BASE_DIR, "data")
     print(f"Creating data directory if it doesn't exist...")
-    os.makedirs("data", exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
 
     print(f"Connecting to {DB_PATH}...")
     conn = sqlite3.connect(DB_PATH)
@@ -20,7 +22,7 @@ def seed_database():
         CREATE TABLE air_quality (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
-            location TEXT NOT NULL,
+            location TEXT COLLATE NOCASE NOT NULL,
             aqi_level INTEGER NOT NULL,
             temperature REAL NOT NULL
         )

@@ -7,6 +7,9 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from db_connection import db_pool
 
+# Override the default db path to match our new database
+# db_pool.db_path = "data/ailo_db.sqlite"
+
 class DatabaseExecutor:
     def __init__(self):
         # Regex to catch any destructive SQL commands, case-insensitive

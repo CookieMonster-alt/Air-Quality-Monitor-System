@@ -14,7 +14,8 @@ from async_executor import ailo_executor
 try:
     from src.model.inference_engine import InferenceEngine
     LLM_AVAILABLE = True
-except ImportError:
+except ImportError as ie:
+    print(f"\n[CRITICAL IMPORT ERROR]\n{ie}\n") # BURAYI EKLEDİK
     LLM_AVAILABLE = False
     InferenceEngine = None
 
@@ -38,8 +39,7 @@ class CascadeGuard:
                 self.engine = InferenceEngine()
             except Exception as e:
                 import traceback
-                error_details = traceback.format_exc()
-                print(f"\n[CRITICAL INITIALIZATION DEBUG]\n{error_details}\n")
+                print(f"\n[CRITICAL INITIALIZATION DEBUG]\n{traceback.format_exc()}\n") # BURAYI EKLEDİK
                 self.engine = None
 
     def _init_layer_1(self):
