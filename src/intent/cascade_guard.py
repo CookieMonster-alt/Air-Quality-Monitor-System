@@ -37,7 +37,9 @@ class CascadeGuard:
             try:
                 self.engine = InferenceEngine()
             except Exception as e:
-                # If engine is missing model or something else fails, degrade gracefully.
+                import traceback
+                error_details = traceback.format_exc()
+                print(f"\n[CRITICAL INITIALIZATION DEBUG]\n{error_details}\n")
                 self.engine = None
 
     def _init_layer_1(self):
