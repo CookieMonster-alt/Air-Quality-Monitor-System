@@ -17,14 +17,26 @@ class AILOMasterEngine:
         # Visual feedback
         self.tui.print_system_message(f"Analyzing intent via Cascade Guard...")
 
-        # Execute the cascade guard parsing in the background executor to avoid blocking the TUI event loop
-        intent = await ailo_executor.run_in_background(cascade_guard.parse, command)
+        # Execute the cascade guard parsing which handles the 4 layers.
+        # It's an async function and manages background execution internally for Layer 4.
+        # But we still print the "Thinking..." indicator before Layer 4 gets hit if possible.
+        # Actually, since we don't know if it hits Layer 4 until inside `classify`,
+        # but to satisfy the requirement: we print it before awaiting `classify`.
+        self.tui.print_system_message("[AILO] 🧠 Complex query detected. Deep thinking in background...")
 
-        if intent == "UNKNOWN":
-            self.tui.print_system_message("Cascade Guard exhausted. Deferring to Layer 4 (LLM Fallback).", level="error")
-            # In a real scenario, this would call ai_llm_engine.parse_intent
+        result = await cascade_guard.classify(command)
+
+        if isinstance(result, dict):
+            # It came from Layer 4 LLM fallback JSON
+            intent = result.get("intent", "llm_chat")
+            response = result.get("response", "")
+            if response:
+                self.tui.print_system_message(f"LLM Chat Response: {response}", level="success")
+            self.tui.print_system_message(f"Intent resolved via LLM: [{intent.upper()}]")
+        elif result == "UNKNOWN":
+            self.tui.print_system_message("Cascade Guard exhausted. LLM Fallback unavailable.", level="error")
         else:
-            self.tui.print_system_message(f"Intent resolved rapidly: [{intent.upper()}]")
+            self.tui.print_system_message(f"Intent resolved rapidly: [{result.upper()}]")
 
     async def pre_warm_models(self):
         """Asynchronously loads heavy AI models into RAM to prevent UI blocking."""

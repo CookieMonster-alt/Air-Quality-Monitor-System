@@ -1,6 +1,7 @@
 import re
 import chromadb
 import os
+import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
@@ -8,6 +9,14 @@ from sklearn.linear_model import LogisticRegression
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.rag.embedder import embedder
+from async_executor import ailo_executor
+
+try:
+    from src.model.inference_engine import InferenceEngine
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+    InferenceEngine = None
 
 class CascadeGuard:
     """
@@ -22,6 +31,14 @@ class CascadeGuard:
         self._init_layer_1()
         self._init_layer_2()
         self._init_layer_3()
+
+        self.engine = None
+        if LLM_AVAILABLE:
+            try:
+                self.engine = InferenceEngine()
+            except Exception as e:
+                # If engine is missing model or something else fails, degrade gracefully.
+                self.engine = None
 
     def _init_layer_1(self):
         # Strict Regex mappings for raw speed
@@ -68,8 +85,8 @@ class CascadeGuard:
             metadata={"hnsw:space": "cosine"}
         )
 
-    def parse(self, text: str) -> str:
-        """Execute the 4-layer cascade."""
+    async def classify(self, text: str):
+        """Execute the 4-layer cascade asynchronously."""
         text_lower = text.lower().strip()
 
         # LAYER 1: Regex Fast-Match
@@ -111,8 +128,23 @@ class CascadeGuard:
                         if meta and 'intent' in meta:
                             return meta['intent']
 
-        # LAYER 4: LLM Fallback (Return UNKNOWN to route to orchestrator)
-        return "UNKNOWN"
+        # LAYER 4: LLM Fallback
+        if self.engine:
+            prompt = f"""<|im_start|>system
+You are AILO, a helpful air quality AI assistant.
+Determine the user's intent and formulate a helpful response.
+You MUST respond strictly in valid JSON matching this schema: {{"intent": "llm_chat", "response": "<your helpful answer>"}}.
+<|im_end|>
+<|im_start|>user
+{text}
+<|im_end|>
+<|im_start|>assistant
+"""
+            # Yield to the background executor to keep UI responsive while generating
+            result = await ailo_executor.run_in_background(self.engine.generate_json, prompt)
+            return result
+        else:
+            return "UNKNOWN"
 
 # Export singleton
 cascade_guard = CascadeGuard()
