@@ -23,32 +23,27 @@ def create_ailo_layout() -> Layout:
     # Root layout
     root = Layout(name="root")
 
-    # 1. Split root vertically into upper_body and a full-width footer
-    root.split_column(
-        Layout(name="upper_body", ratio=1),
-        Layout(name="footer", size=3)
-    )
-
-    # 2. Split upper_body horizontally into left, main, and right columns
-    root["upper_body"].split_row(
+    # 1. Split root horizontally into left, main, and right columns
+    # We omit the footer here so prompt_toolkit can own the terminal's bottom line.
+    root.split_row(
         Layout(name="left_sidebar", size=20),
         Layout(name="main_content", ratio=1),
         Layout(name="right_sidebar", size=22)
     )
 
-    # 3. Split main_content vertically into header and conversation
+    # 2. Split main_content vertically into header and conversation
     root["main_content"].split_column(
         Layout(name="header", size=3),
         Layout(name="conversation", ratio=1)
     )
 
-    # 4. Split left_sidebar vertically into sys_stats and aqi_readings
+    # 3. Split left_sidebar vertically into sys_stats and aqi_readings
     root["left_sidebar"].split_column(
         Layout(name="sys_stats", ratio=1),
         Layout(name="aqi_readings", ratio=1)
     )
 
-    # 5. Split right_sidebar vertically into model_stats and intent_layer
+    # 4. Split right_sidebar vertically into model_stats and intent_layer
     root["right_sidebar"].split_column(
         Layout(name="model_stats", ratio=1),
         Layout(name="intent_layer", ratio=1)
@@ -63,7 +58,5 @@ def create_ailo_layout() -> Layout:
 
     root["model_stats"].update(Panel("Model Stats", title="Model"))
     root["intent_layer"].update(Panel("Intent Layer", title="Intent"))
-
-    root["footer"].update(Panel("Footer Area (Full Width)", title="Footer"))
 
     return root
