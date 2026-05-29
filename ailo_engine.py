@@ -3,6 +3,11 @@ from tui_engine import TUIEngine
 from async_executor import ailo_executor
 from src.intent.cascade_guard import cascade_guard
 
+# --- SPRINT 5 EKLENTİLERİ ---
+from src.tools.db_executor import DatabaseExecutor
+from rich.table import Table
+from rich.console import Console
+
 class AILOMasterEngine:
     """
     The asynchronous backbone of the AILO interface.
@@ -47,6 +52,56 @@ class AILOMasterEngine:
             self.tui.print_system_message("Cascade Guard exhausted. LLM Fallback unavailable.", level="error")
         else:
             self.tui.print_system_message(f"Intent resolved rapidly: [{result.upper()}]")
+            
+            # --- SPRINT 5 PART 2: VERİTABANI İNFAZ MOTORU ---
+            if result.upper() == "QUERY":
+                if not cascade_guard.engine:
+                    self.tui.print_system_message("LLM Engine is unavailable. Cannot generate SQL for this query.", level="error")
+                    return
+
+                self.tui.print_system_message("Generating SQL for database...", level="system")
+                try:
+                    # 1. Beyinden (LLM) SQL Sorgusu İste
+                    prompt = (
+                        "<|im_start|>system\n"
+                        "You are a SQL generator. Generate a SELECT query to retrieve the requested data.\n"
+                        "Table schema:\n"
+                        "CREATE TABLE air_quality (\n"
+                        "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+                        "    timestamp TEXT NOT NULL,\n"
+                        "    location TEXT NOT NULL,\n"
+                        "    aqi_level INTEGER NOT NULL,\n"
+                        "    temperature REAL NOT NULL\n"
+                        ")\n"
+                        "Rules:\n"
+                        "- ONLY filter by columns that are explicitly mentioned in the user prompt (e.g. location, aqi_level, etc.).\n"
+                        "- Do NOT add timestamp filters unless the user specifies a date or time.\n"
+                        "- Response must be a single SELECT query matching the schema and grammar. Do not explain.\n"
+                        "<|im_end|>\n"
+                        f"<|im_start|>user\n{command}\n<|im_end|>\n"
+                        "<|im_start|>assistant\n"
+                    )
+                    sql_query = await ailo_executor.run_in_background(cascade_guard.engine.generate_sql, prompt)
+                    
+                    # 2. Veritabanına Bağlan ve Sorguyu Çalıştır
+                    db = DatabaseExecutor()
+                    db_result = db.execute_read_query(sql_query)
+                    
+                    # 3. Sonuçları Rich Tablosuna Çevir
+                    if "error" in db_result:
+                        self.tui.print_system_message(f"SQL Hata: {db_result['error']} - {db_result.get('details', '')}", level="error")
+                    else:
+                        table = Table(title="AILO Air Quality Data", show_header=True, header_style="bold cyan")
+                        for col in db_result["columns"]:
+                            table.add_column(col)
+                        for row in db_result["rows"]:
+                            table.add_row(*[str(item) for item in row])
+                        
+                        # Ekrana Bas (Jules tui_engine'i güncellemediyse diye doğrudan Console kullanıyoruz)
+                        Console().print(table)
+                        
+                except Exception as e:
+                    self.tui.print_system_message(f"Database Execution Error: {e}", level="error")
 
     async def pre_warm_models(self):
         """Asynchronously loads heavy AI models into RAM to prevent UI blocking."""

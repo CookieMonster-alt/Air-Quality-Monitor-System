@@ -21,20 +21,20 @@ ws     ::= [ \t\n]*
 """
 
 SQL_GBNF = r"""
-root            ::= "SELECT " ws column_list ws " FROM " ws table_name ws where_clause ws group_by_clause ws order_by_clause ws limit_clause ws ";"
+root            ::= "SELECT " ws column-list ws " FROM " ws table-name ws where-clause ws group-by-clause ws order-by-clause ws limit-clause ws ";"
 ws              ::= [ \t\n]*
-column_list     ::= column (ws "," ws column)* | "*"
-column          ::= identifier | agg_func "(" ws identifier ws ")" | agg_func "(" ws "*" ws ")"
-agg_func        ::= "COUNT" | "AVG" | "MAX" | "MIN" | "SUM"
-table_name      ::= identifier
-where_clause    ::= "" | "WHERE " ws condition
-condition       ::= expr (ws logical_op ws expr)*
+column-list     ::= column (ws "," ws column)* | "*"
+column          ::= identifier | agg-func "(" ws identifier ws ")" | agg-func "(" ws "*" ws ")"
+agg-func        ::= "COUNT" | "AVG" | "MAX" | "MIN" | "SUM"
+table-name      ::= identifier
+where-clause    ::= "" | "WHERE " ws condition
+condition       ::= expr (ws logical-op ws expr)*
 expr            ::= identifier ws operator ws value | "(" ws condition ws ")"
-logical_op      ::= "AND" | "OR"
+logical-op      ::= "AND" | "OR"
 operator        ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "LIKE" | "IN" | "IS"
-group_by_clause ::= "" | "GROUP BY " ws identifier (ws "," ws identifier)*
-order_by_clause ::= "" | "ORDER BY " ws identifier ws ("ASC" | "DESC")?
-limit_clause    ::= "" | "LIMIT " ws [0-9]+
+group-by-clause ::= "" | "GROUP BY " ws identifier (ws "," ws identifier)*
+order-by-clause ::= "" | "ORDER BY " ws identifier ws ("ASC" | "DESC")?
+limit-clause    ::= "" | "LIMIT " ws [0-9]+
 identifier      ::= [a-zA-Z_] [a-zA-Z0-9_]*
 value           ::= string | number | "NULL" | "TRUE" | "FALSE"
 string          ::= "'" [^']* "'"
@@ -42,7 +42,11 @@ number          ::= "-"? [0-9]+ ("." [0-9]+)?
 """
 
 class InferenceEngine:
-    def __init__(self, model_path="models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf"):
+    def __init__(self, model_path=None):
+        if model_path is None:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            model_path = os.path.join(base_dir, "models", "llm", "qwen2.5-1.5b-instruct-q4_k_m.gguf")
+
         if not LLAMA_AVAILABLE:
             raise RuntimeError("LLM dependencies not found. Please run scripts/setup_brain.sh first.")
 

@@ -6,3 +6,9 @@ aqi_data.db
 .env
 ailo/models/
 data/vector_db/
+venv/
+data/ailo_db.sqlite*
+models/
+.DS_Store
+.vscode/
+_archive/

@@ -2,6 +2,8 @@ import os
 from sentence_transformers import SentenceTransformer
 import logging
 
+import os
+
 class AILOEmbedder:
     """
     Singleton wrapper for the all-MiniLM-L6-v2 SentenceTransformer model.
@@ -9,7 +11,8 @@ class AILOEmbedder:
     """
     _instance = None
     _model = None
-    _MODEL_PATH = "ailo/models/embedder"
+    _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _MODEL_PATH = os.path.join(_BASE_DIR, "ailo", "models", "embedder")
     _MODEL_ID = "all-MiniLM-L6-v2"
 
     def __new__(cls):
