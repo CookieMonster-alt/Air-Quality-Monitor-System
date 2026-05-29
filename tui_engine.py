@@ -3,6 +3,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
+from rich.console import Console
 
 class TUIEngine:
     """
@@ -14,6 +15,10 @@ class TUIEngine:
         os.environ["LESS"] = os.environ.get("LESS", "") + " -R"
 
         self.session = PromptSession()
+
+        # We do not enforce color_system="256" here to prevent ANSI bleeding,
+        # allowing rich to auto-detect optimal settings.
+        self.rich_console = Console()
 
         self.commands = [
             '/router', '/analyst', '/visualize', '/train',
@@ -55,6 +60,12 @@ class TUIEngine:
             print_formatted_text(HTML(f'<error>[ERROR]</error> {message}'), style=self.style)
         else:
             print_formatted_text(HTML(f'<system>[AILO]</system> {message}'), style=self.style)
+
+    def print_rich_table(self, table):
+        """
+        Delegates the rendering of a rich object securely to the initialized console.
+        """
+        self.rich_console.print(table)
 
     async def get_omnibar_input_async(self, persona: str = "router") -> str:
         """

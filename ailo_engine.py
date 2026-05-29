@@ -2,6 +2,9 @@ import asyncio
 from tui_engine import TUIEngine
 from async_executor import ailo_executor
 from src.intent.cascade_guard import cascade_guard
+from src.tools.db_executor import DatabaseExecutor
+from rich.table import Table
+from rich import box
 
 # --- SPRINT 5 EKLENTİLERİ ---
 from src.tools.db_executor import DatabaseExecutor
@@ -50,6 +53,39 @@ class AILOMasterEngine:
             self.tui.print_system_message(f"Intent resolved via LLM: [{intent.upper()}]")
         elif result == "UNKNOWN":
             self.tui.print_system_message("Cascade Guard exhausted. LLM Fallback unavailable.", level="error")
+        elif result == "query":
+            self.tui.print_system_message(f"Intent resolved rapidly: [QUERY]")
+            # Step A: Non-blocking log
+            self.tui.print_system_message("Generating SQL for database...", level="system")
+
+            # Step B: LLM generation in background
+            if cascade_guard.engine:
+                prompt = f"Convert this text to a SQL read query for the table 'air_quality' (id, timestamp, location, aqi_level, temperature): '{command}'"
+                sql_query = await ailo_executor.run_in_background(cascade_guard.engine.generate_sql, prompt)
+
+                # Step C: Execute generated SQL safely
+                self.tui.print_system_message(f"Executing: {sql_query}")
+                db_exec = DatabaseExecutor()
+                db_result = db_exec.execute_read_query(sql_query)
+
+                # Step D: Error Check
+                if "error" in db_result:
+                    self.tui.print_system_message(f"Execution Error: {db_result['error']} - {db_result.get('details', '')}", level="error")
+                else:
+                    # Step E: Instantiate Rich Table
+                    table = Table(title="Data Results", box=box.SQUARE, show_lines=True)
+
+                    for col in db_result.get("columns", []):
+                        table.add_column(col)
+
+                    for row in db_result.get("rows", []):
+                        # Convert all tuple elements to string for rich Table API
+                        table.add_row(*[str(item) for item in row])
+
+                    # Step F: Print Rich Table natively
+                    self.tui.print_rich_table(table)
+            else:
+                self.tui.print_system_message("LLM Engine unavailable to generate SQL.", level="error")
         else:
             self.tui.print_system_message(f"Intent resolved rapidly: [{result.upper()}]")
             
