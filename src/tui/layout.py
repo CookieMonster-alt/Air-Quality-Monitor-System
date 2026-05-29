@@ -26,9 +26,9 @@ def create_ailo_layout() -> Layout:
     # 1. Split root horizontally into left, main, and right columns
     # We omit the footer here so prompt_toolkit can own the terminal's bottom line.
     root.split_row(
-        Layout(name="left_sidebar", size=20),
+        Layout(name="left_sidebar", size=26),
         Layout(name="main_content", ratio=1),
-        Layout(name="right_sidebar", size=22)
+        Layout(name="right_sidebar", size=28)
     )
 
     # 2. Split main_content vertically into header and conversation

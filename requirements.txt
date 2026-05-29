@@ -26,6 +26,7 @@ rich>=13.0.0  # CRITICAL: Required for AILO database output formatting
 apscheduler>=3.10.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+psutil>=5.9.0
 
 # --- Tier 6: External APIs ---
 google-generativeai>=0.3.0
